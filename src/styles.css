@@ -1,0 +1,91 @@
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: #345147;
+  background: #e6f3ed;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+.room-app {
+  width: 100%;
+  height: 100dvh;
+  min-height: 320px;
+  position: relative;
+  overflow: hidden;
+}
+.room-canvas {
+  position: absolute;
+  inset: 0;
+}
+.room-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+.import-button {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  padding: 13px 26px;
+  border: 1px solid #ffffffbb;
+  border-radius: 14px;
+  background: #fffdf6;
+  color: #3b6558;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 550;
+  box-shadow: 0 5px 20px #365f4312;
+  cursor: pointer;
+}
+.import-button:hover:not(:disabled) {
+  background: white;
+}
+.import-button:focus-visible {
+  outline: 3px solid #6d9b85;
+  outline-offset: 4px;
+}
+.import-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.error {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 40px);
+  width: max-content;
+  padding: 12px 16px;
+  background: #fff7ee;
+  color: #8a4b31;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.error button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: inherit;
+  cursor: pointer;
+}
+@media (max-width: 600px) {
+  .import-button {
+    top: 20px;
+    right: 20px;
+    padding: 11px 22px;
+  }
+}
