@@ -1,14 +1,16 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Room from "./components/Room";
 import PetProfileCard from "./components/PetProfileCard";
 import { validateFiles, type ModelAsset } from "./lib/assets";
 import { MAX_PETS, type PetRecord } from "./lib/pets";
+import { deletePet, loadPets, savePet } from "./lib/pet-storage";
 
 export default function App() {
   const input = useRef<HTMLInputElement>(null);
   const [pets, setPets] = useState<PetRecord[]>([]);
   const [pendingAsset, setPendingAsset] = useState<ModelAsset | null>(null);
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const importBusy = useRef(false);
   const [error, setError] = useState("");
   const onReady = useCallback(() => {
@@ -21,13 +23,26 @@ export default function App() {
   }, []);
   const onPetError = useCallback((id: string, message: string) => {
     setPets((current) => current.filter((pet) => pet.id !== id));
+    void deletePet(id).catch(() => undefined);
     importBusy.current = false;
     setLoading(false);
     setError(message);
   }, []);
   const full = pets.length >= MAX_PETS;
+  useEffect(() => {
+    let active = true;
+    loadPets()
+      .then((stored) => {
+        if (active) setPets(stored.slice(0, MAX_PETS));
+      })
+      .catch((reason) => {
+        if (active) setError(reason instanceof Error ? reason.message : "无法恢复本地宠物存档。");
+      })
+      .finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, []);
   function importFiles(files: FileList) {
-    if (full || pendingAsset || importBusy.current) return;
+    if (restoring || full || pendingAsset || importBusy.current) return;
     try {
       const next = validateFiles(
         Array.from(files, (file) => ({ name: file.name, blob: file })),
@@ -60,12 +75,16 @@ export default function App() {
           onCancel={() => setPendingAsset(null)}
           onError={setError}
           onConfirm={(nextProfile) => {
-            if (pets.length >= MAX_PETS || importBusy.current) return;
+            if (restoring || pets.length >= MAX_PETS || importBusy.current) return;
             importBusy.current = true;
             setLoading(true);
             const pet = { id: crypto.randomUUID(), asset: pendingAsset, profile: nextProfile };
             setPets((current) => [...current, pet]);
             setPendingAsset(null);
+            void savePet(pet).catch((reason) => {
+              setPets((current) => current.filter((item) => item.id !== pet.id));
+              setError(reason instanceof Error ? reason.message : "无法保存宠物存档。");
+            });
           }}
         />
       ) : null}
@@ -74,7 +93,7 @@ export default function App() {
         className="file-input"
         type="file"
         multiple
-        disabled={full || loading || Boolean(pendingAsset)}
+        disabled={restoring || full || loading || Boolean(pendingAsset)}
         accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp"
         aria-label="选择 3D 资源"
         onChange={(event) => {
@@ -84,11 +103,11 @@ export default function App() {
       />
       <button
         className="import-button"
-        disabled={full || loading || Boolean(pendingAsset)}
+        disabled={restoring || full || loading || Boolean(pendingAsset)}
         title={full ? "房间最多可以放置 3 只宠物" : undefined}
         onClick={() => input.current?.click()}
       >
-        {loading ? "导入中…" : full ? "已满员 · 3 / 3" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
+        {restoring ? "正在恢复存档…" : loading ? "导入中…" : full ? "已满员 · 3 / 3" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
       </button>
       {error ? (
         <div className="error" role="alert">
