@@ -22,32 +22,60 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { disposeObject, loadModel } from "../lib/model";
-import { createWander, stepWander, type WanderState } from "../lib/wander";
-import type { ModelAsset } from "../lib/assets";
+import { createWander, resumeWander, stepWander, type WanderState } from "../lib/wander";
+import { MAX_PETS, type PetRecord } from "../lib/pets";
+import { findPetSpawn, PET_GAP } from "../lib/pet-placement";
 import { createRoomShell, createBackdrop, ROOM_SIZE } from "../lib/room-shell";
 import { createFurniture, FURNITURE_OBSTACLES } from "../lib/furniture";
 import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 
-type PetRuntime = { mover: Group; motion: PetMotion; wander: WanderState };
-type Runtime = { scene: Scene; camera: OrthographicCamera; render: () => void; pet: PetRuntime | null };
+type PetRuntime = {
+  id: string;
+  name: string;
+  mover: Group;
+  motion: PetMotion;
+  wander: WanderState;
+  radius: number;
+  label: HTMLDivElement;
+  walking: boolean;
+  manualHeading: number | null;
+};
+type Runtime = {
+  scene: Scene;
+  camera: OrthographicCamera;
+  render: () => void;
+  pets: Map<string, PetRuntime>;
+  loading: Set<string>;
+  disposed: boolean;
+};
+
+function disposePet(pet: PetRuntime) {
+  pet.mover.removeFromParent();
+  pet.label.remove();
+  pet.motion.dispose();
+  disposeObject(pet.mover);
+}
+
+function updateNeighbors(pet: PetRuntime, current: Runtime) {
+  pet.wander.neighbors = Array.from(current.pets.values())
+    .filter((other) => other !== pet)
+    .map((other) => ({ x: other.wander.x, z: other.wander.z, radius: pet.radius + other.radius + PET_GAP }));
+}
+
 export default function Room({
-  asset,
-  petName,
-  facingYaw,
+  pets,
   onReady,
   onError,
+  onPetError,
 }: {
-  asset: ModelAsset | null;
-  petName: string;
-  facingYaw: number;
-  onReady: () => void;
+  pets: readonly PetRecord[];
+  onReady: (id: string) => void;
   onError: (message: string) => void;
+  onPetError: (id: string, message: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<Runtime | null>(null);
-  const nameTag = useRef<HTMLDivElement>(null);
-  const manualHeading = useRef<number | null>(null);
-  const walking = useRef(true);
+  const feedback = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = host.current!;
@@ -107,20 +135,16 @@ export default function Room({
     const labelPosition = new Vector3();
     const render = () => {
       renderer.render(scene, camera);
-      const pet = current.pet;
-      const label = nameTag.current;
-      if (label) {
-        if (!pet) label.hidden = true;
-        else {
+      for (const pet of current.pets.values()) {
+          const label = pet.label;
           labelPosition.set(pet.wander.x, pet.motion.height + 0.15, pet.wander.z).project(camera);
           label.hidden = Math.abs(labelPosition.x) > 1 || Math.abs(labelPosition.y) > 1 || Math.abs(labelPosition.z) > 1;
           const x = (labelPosition.x + 1) / 2 * container.clientWidth;
           const y = (1 - labelPosition.y) / 2 * container.clientHeight;
           label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
-        }
       }
     };
-    const current: Runtime = { scene, camera, render, pet: null };
+    const current: Runtime = { scene, camera, render, pets: new Map(), loading: new Set(), disposed: false };
     runtime.current = current;
 
     // Dragging the pet rotates its horizontal facing. Blank-space drags remain
@@ -128,56 +152,91 @@ export default function Room({
     const raycaster = new Raycaster();
     const pointer = new Vector2();
     const hitBounds = new Sphere();
-    let rotatingPointerId: number | null = null;
-    let lastPointerX = 0;
+    const intersection = new Vector3();
+    let gesture: { pet: PetRuntime; pointer: number; startX: number; startY: number; lastX: number; dragging: boolean } | null = null;
+    let lastTap: { id: string; time: number; x: number; y: number } | null = null;
+    let lastToggle: { id: string; time: number } | null = null;
+    let lastDragTime = -Infinity;
+    let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
     const canvas = renderer.domElement;
-    const hitPet = (event: PointerEvent) => {
+    const hitPet = (event: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const pet = current.pet;
-      if (!pet) return false;
-      // A lightweight body hit volume avoids ray-testing millions of animated
-      // triangles on every pointer-down, especially on imported Tripo meshes.
-      hitBounds.center.set(pet.wander.x, pet.motion.height * 0.5, pet.wander.z);
-      hitBounds.radius = pet.motion.height * 0.38;
-      return raycaster.ray.intersectsSphere(hitBounds);
+      let nearest: PetRuntime | null = null;
+      let nearestDistance = Infinity;
+      for (const pet of current.pets.values()) {
+        hitBounds.center.set(pet.wander.x, pet.motion.height * 0.5, pet.wander.z);
+        hitBounds.radius = pet.motion.height * 0.42;
+        if (raycaster.ray.intersectSphere(hitBounds, intersection)) {
+          const distance = raycaster.ray.origin.distanceToSquared(intersection);
+          if (distance < nearestDistance) { nearestDistance = distance; nearest = pet; }
+        }
+      }
+      return nearest;
+    };
+    const toggleWalking = (pet: PetRuntime, time: number) => {
+      pet.walking = !pet.walking;
+      pet.manualHeading = null;
+      pet.wander.speed = 0;
+      if (pet.walking) {
+        updateNeighbors(pet, current);
+        resumeWander(pet.wander);
+      }
+      lastToggle = { id: pet.id, time };
+      if (feedback.current) feedback.current.textContent = `${pet.name}${pet.walking ? "开始活动" : "已停止"}`;
+      clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => { if (feedback.current) feedback.current.textContent = ""; }, 1600);
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (!hitPet(event)) return;
-      rotatingPointerId = event.pointerId;
-      lastPointerX = event.clientX;
-      const pet = current.pet!;
-      manualHeading.current = pet.wander.yaw;
-      pet.wander.targetX = pet.wander.x;
-      pet.wander.targetZ = pet.wander.z;
-      pet.wander.wait = 2.5;
-      pet.wander.speed = 0;
+      if (event.button !== 0 || gesture) return;
+      const pet = hitPet(event);
+      if (!pet) { lastTap = null; return; }
+      gesture = { pet, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, dragging: false };
       controls.enabled = false;
       canvas.setPointerCapture?.(event.pointerId);
-      event.preventDefault();
       event.stopPropagation();
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (rotatingPointerId !== event.pointerId) return;
-      const deltaX = event.clientX - lastPointerX;
-      lastPointerX = event.clientX;
-      if (manualHeading.current !== null) manualHeading.current += deltaX * 0.015;
+      if (!gesture || gesture.pointer !== event.pointerId) return;
+      const { pet } = gesture;
+      if (!gesture.dragging && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 5) {
+        gesture.dragging = true;
+        lastTap = null;
+        pet.manualHeading = pet.wander.yaw;
+        pet.wander.targetX = pet.wander.x;
+        pet.wander.targetZ = pet.wander.z;
+        pet.wander.wait = 1.2;
+        pet.wander.speed = 0;
+      }
+      if (gesture.dragging) pet.manualHeading! += (event.clientX - gesture.lastX) * 0.015;
+      gesture.lastX = event.clientX;
       event.preventDefault();
       event.stopPropagation();
     };
     const stopPetRotation = (event: PointerEvent) => {
-      if (rotatingPointerId !== event.pointerId) return;
-      rotatingPointerId = null;
+      if (!gesture || gesture.pointer !== event.pointerId) return;
+      const completed = gesture;
+      gesture = null;
       controls.enabled = true;
-      canvas.releasePointerCapture?.(event.pointerId);
-      event.preventDefault();
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      if (completed.dragging) { lastDragTime = event.timeStamp; lastTap = null; }
+      else if (event.type === "pointerup") {
+        if (lastTap?.id === completed.pet.id && event.timeStamp - lastTap.time < 400 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 24) {
+          toggleWalking(completed.pet, event.timeStamp);
+          lastTap = null;
+        } else lastTap = { id: completed.pet.id, time: event.timeStamp, x: event.clientX, y: event.clientY };
+      } else lastTap = null;
       event.stopPropagation();
     };
     const onDoubleClick = (event: MouseEvent) => {
-      if (!hitPet(event as unknown as PointerEvent)) return;
-      walking.current = !walking.current;
+      const pet = hitPet(event);
+      if (!pet || event.timeStamp - lastDragTime < 400) return;
+      // Pointer-up handles mouse double taps and touch. Native dblclick is a
+      // fallback, not a second toggle of the same gesture.
+      if (!(lastToggle?.id === pet.id && event.timeStamp - lastToggle.time < 100)) toggleWalking(pet, event.timeStamp);
+      lastTap = null;
       event.preventDefault();
       event.stopPropagation();
     };
@@ -196,14 +255,16 @@ export default function Room({
           : Math.min((time - previousTime) / 1000, 0.05);
       previousTime = time;
       controls.update();
-      const pet = current.pet;
-      if (pet) {
+      for (const pet of current.pets.values()) {
         const frameDelta = document.hidden ? 0 : delta;
-        if (manualHeading.current !== null) {
-          const turn = Math.atan2(Math.sin(manualHeading.current - pet.wander.yaw), Math.cos(manualHeading.current - pet.wander.yaw));
+        if (pet.manualHeading !== null) {
+          const turn = Math.atan2(Math.sin(pet.manualHeading - pet.wander.yaw), Math.cos(pet.manualHeading - pet.wander.yaw));
           pet.wander.yaw += MathUtils.clamp(turn, -0.85 * frameDelta, 0.85 * frameDelta);
-          if (rotatingPointerId === null && Math.abs(turn) < 0.015) manualHeading.current = null;
-        } else if (walking.current) stepWander(pet.wander, frameDelta);
+          if (gesture?.pet !== pet && Math.abs(turn) < 0.015) pet.manualHeading = null;
+        } else if (pet.walking && gesture?.pet !== pet) {
+          updateNeighbors(pet, current);
+          stepWander(pet.wander, frameDelta);
+        }
         pet.mover.position.set(pet.wander.x, 0, pet.wander.z);
         pet.mover.rotation.y = pet.wander.yaw;
         pet.motion.update(frameDelta, pet.wander);
@@ -228,6 +289,11 @@ export default function Room({
     resize();
     return () => {
       runtime.current = null;
+      current.disposed = true;
+      current.loading.clear();
+      for (const pet of current.pets.values()) disposePet(pet);
+      current.pets.clear();
+      clearTimeout(feedbackTimer);
       renderer.setAnimationLoop(null);
       observer.disconnect();
       disposeObject(room);
@@ -247,13 +313,24 @@ export default function Room({
   }, [onError]);
 
   useEffect(() => {
-    if (!asset || !runtime.current) return;
+    if (!runtime.current) return;
     const current = runtime.current;
-    let cancelled = false;
-    let pet: PetRuntime | null = null;
-    loadModel(asset)
+    const ids = new Set(pets.map((pet) => pet.id));
+    for (const [id, pet] of current.pets) {
+      if (!ids.has(id)) { disposePet(pet); current.pets.delete(id); }
+    }
+    for (const id of current.loading) if (!ids.has(id)) current.loading.delete(id);
+    for (const record of pets) {
+      if (current.pets.has(record.id) || current.loading.has(record.id)) continue;
+      if (current.pets.size + current.loading.size >= MAX_PETS) {
+        onPetError(record.id, "房间最多可以放置 3 只宠物。");
+        continue;
+      }
+      current.loading.add(record.id);
+      let motion: PetMotion | null = null;
+      loadModel(record.asset)
       .then((model) => {
-        if (cancelled) {
+        if (current.disposed || !current.loading.has(record.id)) {
           disposeObject(model.root);
           return;
         }
@@ -261,8 +338,18 @@ export default function Room({
           .setFromObject(model.root)
           .getSize(new Vector3());
         // A rotation-safe radius keeps the whole model inside the walls and edges.
-        const motion = createPetMotion(model);
+        motion = createPetMotion(model);
         const radius = Math.hypot(size.x, size.z) / 2 + motion.clearance;
+        const bound = Math.max(0.1, ROOM_SIZE / 2 - radius - 0.4);
+        const obstacles = FURNITURE_OBSTACLES.map((obstacle) => ({
+          minX: obstacle.minX - radius - 0.1,
+          maxX: obstacle.maxX + radius + 0.1,
+          minZ: obstacle.minZ - radius - 0.1,
+          maxZ: obstacle.maxZ + radius + 0.1,
+        }));
+        const others = Array.from(current.pets.values(), (pet) => ({ x: pet.wander.x, z: pet.wander.z, radius: pet.radius }));
+        const spawn = findPetSpawn(bound, obstacles, radius, others, current.pets.size === 0);
+        if (!spawn) throw new Error("房间暂时没有足够的空位，请稍后重新导入。");
         const mover = new Group();
         mover.add(motion.root);
         motion.root.traverse((child) => {
@@ -271,48 +358,41 @@ export default function Room({
             child.receiveShadow = true;
           }
         });
-        pet = {
+        const label = document.createElement("div");
+        label.className = "pet-name-tag";
+        label.textContent = record.profile.name;
+        label.hidden = true;
+        host.current!.appendChild(label);
+        const pet: PetRuntime = {
+          id: record.id,
+          name: record.profile.name,
+          label,
+          radius,
+          walking: true,
+          manualHeading: null,
           mover,
           motion,
-          wander: createWander(
-            Math.max(0.1, ROOM_SIZE / 2 - radius - 0.4),
-            Math.random,
-            FURNITURE_OBSTACLES.map((obstacle) => ({
-              minX: obstacle.minX - radius - 0.1,
-              maxX: obstacle.maxX + radius + 0.1,
-              minZ: obstacle.minZ - radius - 0.1,
-              maxZ: obstacle.maxZ + radius + 0.1,
-            })),
-          ),
+          wander: createWander(bound, Math.random, obstacles, spawn),
         };
         // Preserve the preview's angle relative to the viewer, not the room's axes.
         const towardViewer = current.camera.getWorldDirection(new Vector3()).negate();
-        pet.wander.yaw = Math.atan2(towardViewer.x, towardViewer.z) + facingYaw;
+        pet.wander.yaw = Math.atan2(towardViewer.x, towardViewer.z) + record.profile.facingYaw;
         pet.wander.wait = 3;
         mover.position.set(pet.wander.x, 0, pet.wander.z);
         mover.rotation.y = pet.wander.yaw;
         motion.update(0, pet.wander);
-        manualHeading.current = null;
-        walking.current = true;
-        current.pet = pet;
+        current.pets.set(record.id, pet);
+        current.loading.delete(record.id);
         current.scene.add(mover);
         current.render();
-        onReady();
+        onReady(record.id);
       })
       .catch((error) => {
-        if (!cancelled)
-          onError(error instanceof Error ? error.message : "模型读取失败。");
+        if (motion && !current.pets.has(record.id)) { motion.dispose(); disposeObject(motion.root); }
+        if (!current.disposed && current.loading.delete(record.id))
+          onPetError(record.id, error instanceof Error ? error.message : "模型读取失败。");
       });
-    return () => {
-      cancelled = true;
-      if (pet) {
-        if (current.pet === pet) current.pet = null;
-        current.scene.remove(pet.mover);
-        pet.motion.dispose();
-        disposeObject(pet.mover);
-      }
-      if (runtime.current === current) current.render();
-    };
-  }, [asset, facingYaw, onReady, onError]);
-  return <div ref={host} className="room-canvas"><div ref={nameTag} className="pet-name-tag" hidden>{petName}</div></div>;
+    }
+  }, [pets, onReady, onPetError]);
+  return <div ref={host} className="room-canvas"><div ref={feedback} className="room-feedback" role="status" aria-live="polite" /></div>;
 }

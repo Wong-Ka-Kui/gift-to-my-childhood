@@ -15,15 +15,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { disposeObject, loadModel } from "../lib/model";
 import { preparePetModel } from "../lib/pet-motion";
 import type { ModelAsset } from "../lib/assets";
-
-export type PetProfile = {
-  name: string;
-  gender: string;
-  mbti: string;
-  age: string;
-  introduction: string;
-  facingYaw: number;
-};
+import type { PetProfile } from "../lib/pets";
 
 type Props = {
   asset: ModelAsset;

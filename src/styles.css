@@ -31,15 +31,14 @@ body {
   top: 0;
   left: 0;
   z-index: 1;
-  max-width: min(240px, 60vw);
-  padding: 6px 13px;
-  border: 1px solid #ffffffdb;
+  max-width: min(180px, 50vw);
+  padding: 3px 8px;
+  border: 1px solid #ffffff38;
   border-radius: 20px;
-  background: #fffdf3ed;
-  box-shadow: 0 3px 12px #25483926;
-  color: #365c4c;
-  font-size: 13px;
-  font-weight: 650;
+  background: #fffdf359;
+  color: #365c4cc4;
+  font-size: 10px;
+  font-weight: 500;
   line-height: 1.35;
   overflow-wrap: anywhere;
   text-align: center;
@@ -77,9 +76,25 @@ body {
   outline-offset: 4px;
 }
 .import-button:disabled {
-  opacity: 0.65;
-  cursor: wait;
+  background: #e3e7e2;
+  color: #8b978d;
+  box-shadow: none;
+  opacity: 0.8;
+  cursor: not-allowed;
 }
+.room-feedback {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 20px;
+  background: #fffdf3b3;
+  color: #365c4c;
+  font-size: 12px;
+  pointer-events: none;
+}
+.room-feedback:empty { display: none; }
 .error {
   position: absolute;
   bottom: 24px;

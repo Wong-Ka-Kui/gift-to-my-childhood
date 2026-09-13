@@ -17,6 +17,8 @@ export interface WanderState {
   targetZ: number;
   wait: number;
   speed: number;
+  /** Other pets' centers, with radii expanded by this pet's radius and a gap. */
+  neighbors?: readonly { x: number; z: number; radius: number }[];
 }
 
 type Random = () => number;
@@ -38,7 +40,7 @@ function angle(value: number) {
 }
 
 function routeBlocked(state: WanderState, targetX: number, targetZ: number) {
-  return state.obstacles.some((obstacle) => {
+  const furnitureBlocked = state.obstacles.some((obstacle) => {
     let enter = 0;
     let exit = 1;
     const axes = [
@@ -59,6 +61,14 @@ function routeBlocked(state: WanderState, targetX: number, targetZ: number) {
       if (enter >= exit) return false;
     }
     return enter < exit;
+  });
+  if (furnitureBlocked) return true;
+  const dx = targetX - state.x, dz = targetZ - state.z;
+  const lengthSquared = dx * dx + dz * dz;
+  return (state.neighbors ?? []).some((pet) => {
+    const fraction = lengthSquared > 0
+      ? Math.max(0, Math.min(1, ((pet.x - state.x) * dx + (pet.z - state.z) * dz) / lengthSquared)) : 0;
+    return Math.hypot(state.x + dx * fraction - pet.x, state.z + dz * fraction - pet.z) < pet.radius;
   });
 }
 
@@ -132,12 +142,13 @@ export function createWander(
   bound: number,
   random: Random = Math.random,
   obstacles: readonly WanderObstacle[] = [],
+  start?: { x: number; z: number },
 ): WanderState {
   const state: WanderState = {
     bound: Number.isFinite(bound) ? Math.max(0, bound) : 0,
     obstacles,
-    x: 0,
-    z: 0,
+    x: start?.x ?? 0,
+    z: start?.z ?? 0,
     yaw: 0,
     targetX: 0,
     targetZ: 0,
@@ -147,7 +158,7 @@ export function createWander(
   // Expanded furniture may cover the room center. Start in the nearest clear
   // spot so a larger animated pet is never born overlapping a table or chair.
   const blocked = (x: number, z: number) => obstacles.some((o) => x > o.minX && x < o.maxX && z > o.minZ && z < o.maxZ);
-  if (blocked(0, 0)) {
+  if (!start && blocked(0, 0)) {
     const candidates: { x: number; z: number }[] = [];
     for (let x = -state.bound; x <= state.bound; x += 0.25) {
       for (let z = -state.bound; z <= state.bound; z += 0.25) {
@@ -159,6 +170,15 @@ export function createWander(
   }
   chooseTarget(state, random);
   return state;
+}
+
+/** User-requested resume bypasses the random resting schedule. */
+export function resumeWander(state: WanderState, random: Random = Math.random) {
+  state.wait = 0;
+  state.speed = 0;
+  if (Math.hypot(state.targetX - state.x, state.targetZ - state.z) < 0.001 || routeBlocked(state, state.targetX, state.targetZ)) {
+    chooseTarget(state, random);
+  }
 }
 
 /** Mutates state once per frame. Stop calling this function to pause wandering. */
