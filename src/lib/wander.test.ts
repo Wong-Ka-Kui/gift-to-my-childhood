@@ -9,6 +9,18 @@ function seededRandom(seed: number) {
 }
 
 describe("pet wandering", () => {
+  it("starts outside furniture when the animated-foot clearance covers the center", () => {
+    const obstacles = [{ minX: -2, maxX: 0.18, minZ: -0.14, maxZ: 3 }];
+    const state = createWander(4.8, () => 0.8, obstacles);
+    const inside = (x: number, z: number) => obstacles.some((o) => x > o.minX && x < o.maxX && z > o.minZ && z < o.maxZ);
+    expect(inside(state.x, state.z)).toBe(false);
+    expect(Math.hypot(state.x, state.z)).toBeLessThan(0.6);
+    for (let frame = 0; frame < 1200; frame += 1) {
+      stepWander(state, 1 / 60, () => 0.8);
+      expect(inside(state.x, state.z)).toBe(false);
+    }
+  });
+
   it("starts in the center and visits multiple places while staying inside the room", () => {
     const random = seededRandom(23);
     const state = createWander(5, random);
@@ -66,7 +78,8 @@ describe("pet wandering", () => {
     // The shortest turn initially increases yaw toward +PI.
     expect(state.yaw).toBeGreaterThan(Math.PI - 0.15);
     expect([state.x, state.z]).toEqual([0, 0]);
-    for (let frame = 0; frame < 12; frame += 1) stepWander(state, 0.02);
+    // Gentle stepping turns take longer than the old instant swivel.
+    for (let frame = 0; frame < 24; frame += 1) stepWander(state, 0.02);
     expect(state.yaw).toBeCloseTo(desiredYaw);
     expect(state.z).toBeLessThan(0);
   });
@@ -133,7 +146,7 @@ describe("pet wandering", () => {
       expect(Math.abs(state.x)).toBeLessThanOrEqual(5);
       expect(Math.abs(state.z)).toBeLessThanOrEqual(5);
     }
-    expect(distance).toBeGreaterThan(60);
+    expect(distance).toBeGreaterThan(45);
   });
 
   it("allows leaving a furniture edge but refuses to enter it", () => {

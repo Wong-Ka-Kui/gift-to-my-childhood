@@ -16,13 +16,15 @@ export interface WanderState {
   targetX: number;
   targetZ: number;
   wait: number;
+  speed: number;
 }
 
 type Random = () => number;
 
 // Keep movement gentle while giving the pet long pauses between walks.
-const SPEED = 0.68;
-const TURN_SPEED = 2.8;
+const SPEED = 0.52;
+const ACCELERATION = 1.3;
+const TURN_SPEED = 0.85;
 const MAX_DELTA = 0.1;
 const IDLE_PROBABILITY = 0.7;
 const INITIAL_WAIT = 1.2;
@@ -140,7 +142,21 @@ export function createWander(
     targetX: 0,
     targetZ: 0,
     wait: INITIAL_WAIT,
+    speed: 0,
   };
+  // Expanded furniture may cover the room center. Start in the nearest clear
+  // spot so a larger animated pet is never born overlapping a table or chair.
+  const blocked = (x: number, z: number) => obstacles.some((o) => x > o.minX && x < o.maxX && z > o.minZ && z < o.maxZ);
+  if (blocked(0, 0)) {
+    const candidates: { x: number; z: number }[] = [];
+    for (let x = -state.bound; x <= state.bound; x += 0.25) {
+      for (let z = -state.bound; z <= state.bound; z += 0.25) {
+        if (!blocked(x, z)) candidates.push({ x, z });
+      }
+    }
+    candidates.sort((a, b) => a.x * a.x + a.z * a.z - b.x * b.x - b.z * b.z);
+    if (candidates[0]) { state.x = candidates[0].x; state.z = candidates[0].z; }
+  }
   chooseTarget(state, random);
   return state;
 }
@@ -155,6 +171,7 @@ export function stepWander(
   // Background tabs can produce very large frame gaps. Never teleport on return.
   const delta = Math.min(dt, MAX_DELTA);
   if (state.wait > 0) {
+    state.speed = 0;
     state.wait = Math.max(0, state.wait - delta);
     return;
   }
@@ -167,6 +184,7 @@ export function stepWander(
     if (routeBlocked(state, state.targetX, state.targetZ)) {
       chooseTarget(state, random);
       state.wait = MOVE_WAIT_MIN;
+      state.speed = 0;
       return;
     }
     const desiredYaw = Math.atan2(dx, dz);
@@ -177,8 +195,10 @@ export function stepWander(
     );
 
     // Turn toward the next destination before setting off, avoiding sideways slides.
-    if (Math.abs(angle(desiredYaw - state.yaw)) > 0.12) return;
-    const travel = Math.min(SPEED * delta, distance);
+    if (Math.abs(angle(desiredYaw - state.yaw)) > 0.12) { state.speed = 0; return; }
+    const desiredSpeed = Math.min(SPEED, Math.sqrt(2 * ACCELERATION * distance));
+    state.speed += Math.max(-ACCELERATION * delta, Math.min(ACCELERATION * delta, desiredSpeed - state.speed));
+    const travel = Math.min(state.speed * delta, distance);
     state.x = Math.max(
       -state.bound,
       Math.min(state.bound, state.x + (dx / distance) * travel),
@@ -190,5 +210,6 @@ export function stepWander(
     if (travel < distance) return;
   }
 
+  state.speed = 0;
   scheduleNextAction(state, random);
 }

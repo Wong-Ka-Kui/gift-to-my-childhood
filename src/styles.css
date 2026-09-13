@@ -26,6 +26,27 @@ body {
   width: 100%;
   height: 100%;
 }
+.pet-name-tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  max-width: min(240px, 60vw);
+  padding: 6px 13px;
+  border: 1px solid #ffffffdb;
+  border-radius: 20px;
+  background: #fffdf3ed;
+  box-shadow: 0 3px 12px #25483926;
+  color: #365c4c;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+}
+.primary-button:disabled { opacity: .55; cursor: wait; }
 .file-input {
   position: absolute;
   width: 1px;

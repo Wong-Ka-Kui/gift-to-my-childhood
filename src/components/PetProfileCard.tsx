@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AmbientLight,
   ACESFilmicToneMapping,
@@ -13,6 +13,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { disposeObject, loadModel } from "../lib/model";
+import { preparePetModel } from "../lib/pet-motion";
 import type { ModelAsset } from "../lib/assets";
 
 export type PetProfile = {
@@ -21,6 +22,7 @@ export type PetProfile = {
   mbti: string;
   age: string;
   introduction: string;
+  facingYaw: number;
 };
 
 type Props = {
@@ -36,9 +38,15 @@ const EMPTY_PROFILE: PetProfile = {
   mbti: "",
   age: "",
   introduction: "",
+  facingYaw: 0,
 };
 
-function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message: string) => void }) {
+function ModelPreview({ asset, onError, onReady, onFacingChange }: {
+  asset: ModelAsset;
+  onError: (message: string) => void;
+  onReady: () => void;
+  onFacingChange: (yaw: number) => void;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -73,7 +81,8 @@ function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message
     grid.material.opacity = 0.48;
     scene.add(grid);
     const camera = new PerspectiveCamera(28, 1, 0.1, 100);
-    camera.position.set(3.4, 2.35, 4.2);
+    // Same elevation as the room; horizontal orbit selects the pet's entry facing.
+    camera.position.set(0, 3.72, 4.2);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -84,6 +93,9 @@ function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message
     controls.maxDistance = 8;
     controls.maxPolarAngle = Math.PI * 0.48;
     controls.update();
+    controls.minPolarAngle = controls.maxPolarAngle = controls.getPolarAngle();
+    const reportFacing = () => onFacingChange(-controls.getAzimuthalAngle());
+    controls.addEventListener("change", reportFacing);
 
     let disposed = false;
     let modelRoot: Group | null = null;
@@ -93,14 +105,14 @@ function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message
           disposeObject(model.root);
           return;
         }
-        modelRoot = model.root;
-        modelRoot.rotation.y = -0.35;
-        modelRoot.position.y = 0;
+        modelRoot = preparePetModel(model).root;
         scene.add(modelRoot);
         setLoading(false);
+        onReady();
         renderer.render(scene, camera);
       })
       .catch((error) => {
+        if (disposed) return;
         setLoading(false);
         onError(error instanceof Error ? error.message : "模型读取失败。");
       });
@@ -125,6 +137,9 @@ function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message
       disposed = true;
       renderer.setAnimationLoop(null);
       observer.disconnect();
+      controls.removeEventListener("change", reportFacing);
+      grid.geometry.dispose();
+      grid.material.dispose();
       if (modelRoot) {
         scene.remove(modelRoot);
         disposeObject(modelRoot);
@@ -134,13 +149,17 @@ function ModelPreview({ asset, onError }: { asset: ModelAsset; onError: (message
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [asset, onError]);
+  }, [asset, onError, onReady, onFacingChange]);
   return <div ref={host} className="pet-preview-canvas">{loading ? <div className="preview-loading"><span className="loading-dot" />正在准备 3D 预览…</div> : null}</div>;
 }
 
 export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: Props) {
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [submitted, setSubmitted] = useState(false);
+  const [ready, setReady] = useState(false);
+  const facingYaw = useRef(0);
+  const handleReady = useCallback(() => setReady(true), []);
+  const handleFacing = useCallback((yaw: number) => { facingYaw.current = yaw; }, []);
   const update = (key: keyof PetProfile, value: string) =>
     setProfile((current) => ({ ...current, [key]: value }));
   const invalid = !profile.name.trim() || !profile.gender || !profile.mbti || !profile.age;
@@ -148,8 +167,8 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setSubmitted(true);
-    if (invalid) return;
-    onConfirm({ ...profile, name: profile.name.trim(), introduction: profile.introduction.trim() });
+    if (invalid || !ready) return;
+    onConfirm({ ...profile, facingYaw: facingYaw.current, name: profile.name.trim(), introduction: profile.introduction.trim() });
   }
 
   return (
@@ -165,8 +184,8 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
         </div>
         <div className="profile-card-body">
           <div className="preview-panel">
-            <ModelPreview asset={asset} onError={onError} />
-            <div className="preview-hint"><span className="drag-icon">↔</span> 拖动旋转视角 · 滚轮缩放</div>
+            <ModelPreview asset={asset} onError={onError} onReady={handleReady} onFacingChange={handleFacing} />
+            <div className="preview-hint"><span className="drag-icon">↔</span> 拖动选择入园朝向 · 滚轮缩放</div>
           </div>
           <form className="profile-form" onSubmit={submit} noValidate>
             <div className="form-intro">
@@ -181,7 +200,7 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
             <label>性格 MBTI <b>*</b><select value={profile.mbti} onChange={(e) => update("mbti", e.target.value)}><option value="">选择它的性格</option>{["ENFP · 探险家", "INFP · 梦想家", "ENFJ · 照顾者", "INFJ · 观察者", "ENTP · 点子王", "INTP · 思考家", "ESFP · 开心果", "ISFP · 艺术家", "ESTP · 行动派", "ISTP · 修理匠", "ESFJ · 社交家", "ISFJ · 守护者", "ESTJ · 组织者", "ISTJ · 记录员", "ENTJ · 领队", "INTJ · 策划家"].map((item) => <option key={item}>{item}</option>)}</select></label>
             <label>详细介绍 <span className="optional">选填</span><textarea value={profile.introduction} onChange={(e) => update("introduction", e.target.value)} placeholder="它喜欢什么？害怕什么？有什么特别的小习惯？" maxLength={280} rows={4} /><span className="char-count">{profile.introduction.length} / 280</span></label>
             {submitted && invalid ? <p className="form-error" role="alert">请先完成名字、性别、年龄和性格的填写。</p> : null}
-            <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel}>重新导入</button><button className="primary-button" type="submit">确认并进入家园 <span>→</span></button></div>
+            <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel}>重新导入</button><button className="primary-button" type="submit" disabled={!ready}>确认并进入家园 <span>→</span></button></div>
           </form>
         </div>
       </div>

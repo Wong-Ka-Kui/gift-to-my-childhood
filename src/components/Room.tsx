@@ -7,11 +7,13 @@ import {
   Group,
   HemisphereLight,
   Mesh,
+  MathUtils,
   MOUSE,
   OrthographicCamera,
   PCFSoftShadowMap,
   Raycaster,
   Scene,
+  Sphere,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -24,21 +26,27 @@ import { createWander, stepWander, type WanderState } from "../lib/wander";
 import type { ModelAsset } from "../lib/assets";
 import { createRoomShell, createBackdrop, ROOM_SIZE } from "../lib/room-shell";
 import { createFurniture, FURNITURE_OBSTACLES } from "../lib/furniture";
+import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 
-type PetRuntime = { mover: Group; facing: Group; wander: WanderState };
-type Runtime = { scene: Scene; render: () => void; pet: PetRuntime | null };
+type PetRuntime = { mover: Group; motion: PetMotion; wander: WanderState };
+type Runtime = { scene: Scene; camera: OrthographicCamera; render: () => void; pet: PetRuntime | null };
 export default function Room({
   asset,
+  petName,
+  facingYaw,
   onReady,
   onError,
 }: {
   asset: ModelAsset | null;
+  petName: string;
+  facingYaw: number;
   onReady: () => void;
   onError: (message: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<Runtime | null>(null);
-  const orientation = useRef(Math.PI);
+  const nameTag = useRef<HTMLDivElement>(null);
+  const manualHeading = useRef<number | null>(null);
   const walking = useRef(true);
 
   useEffect(() => {
@@ -96,14 +104,30 @@ export default function Room({
     const room = createRoomShell();
     room.add(createFurniture());
     scene.add(room);
-    const render = () => renderer.render(scene, camera);
-    const current: Runtime = { scene, render, pet: null };
+    const labelPosition = new Vector3();
+    const render = () => {
+      renderer.render(scene, camera);
+      const pet = current.pet;
+      const label = nameTag.current;
+      if (label) {
+        if (!pet) label.hidden = true;
+        else {
+          labelPosition.set(pet.wander.x, pet.motion.height + 0.15, pet.wander.z).project(camera);
+          label.hidden = Math.abs(labelPosition.x) > 1 || Math.abs(labelPosition.y) > 1 || Math.abs(labelPosition.z) > 1;
+          const x = (labelPosition.x + 1) / 2 * container.clientWidth;
+          const y = (1 - labelPosition.y) / 2 * container.clientHeight;
+          label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+        }
+      }
+    };
+    const current: Runtime = { scene, camera, render, pet: null };
     runtime.current = current;
 
     // Dragging the pet rotates its horizontal facing. Blank-space drags remain
     // available to OrbitControls for camera panning.
     const raycaster = new Raycaster();
     const pointer = new Vector2();
+    const hitBounds = new Sphere();
     let rotatingPointerId: number | null = null;
     let lastPointerX = 0;
     const canvas = renderer.domElement;
@@ -112,13 +136,24 @@ export default function Room({
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const mover = current.pet?.mover;
-      return Boolean(mover && raycaster.intersectObject(mover, true).length);
+      const pet = current.pet;
+      if (!pet) return false;
+      // A lightweight body hit volume avoids ray-testing millions of animated
+      // triangles on every pointer-down, especially on imported Tripo meshes.
+      hitBounds.center.set(pet.wander.x, pet.motion.height * 0.5, pet.wander.z);
+      hitBounds.radius = pet.motion.height * 0.38;
+      return raycaster.ray.intersectsSphere(hitBounds);
     };
     const onPointerDown = (event: PointerEvent) => {
       if (!hitPet(event)) return;
       rotatingPointerId = event.pointerId;
       lastPointerX = event.clientX;
+      const pet = current.pet!;
+      manualHeading.current = pet.wander.yaw;
+      pet.wander.targetX = pet.wander.x;
+      pet.wander.targetZ = pet.wander.z;
+      pet.wander.wait = 2.5;
+      pet.wander.speed = 0;
       controls.enabled = false;
       canvas.setPointerCapture?.(event.pointerId);
       event.preventDefault();
@@ -128,7 +163,7 @@ export default function Room({
       if (rotatingPointerId !== event.pointerId) return;
       const deltaX = event.clientX - lastPointerX;
       lastPointerX = event.clientX;
-      orientation.current += deltaX * 0.015;
+      if (manualHeading.current !== null) manualHeading.current += deltaX * 0.015;
       event.preventDefault();
       event.stopPropagation();
     };
@@ -163,11 +198,15 @@ export default function Room({
       controls.update();
       const pet = current.pet;
       if (pet) {
-        if (walking.current && !document.hidden) stepWander(pet.wander, delta);
+        const frameDelta = document.hidden ? 0 : delta;
+        if (manualHeading.current !== null) {
+          const turn = Math.atan2(Math.sin(manualHeading.current - pet.wander.yaw), Math.cos(manualHeading.current - pet.wander.yaw));
+          pet.wander.yaw += MathUtils.clamp(turn, -0.85 * frameDelta, 0.85 * frameDelta);
+          if (rotatingPointerId === null && Math.abs(turn) < 0.015) manualHeading.current = null;
+        } else if (walking.current) stepWander(pet.wander, frameDelta);
         pet.mover.position.set(pet.wander.x, 0, pet.wander.z);
         pet.mover.rotation.y = pet.wander.yaw;
-        // Three.js uses Y as the vertical axis; this is horizontal turning.
-        pet.facing.rotation.y = orientation.current;
+        pet.motion.update(frameDelta, pet.wander);
       }
       render();
     });
@@ -222,12 +261,11 @@ export default function Room({
           .setFromObject(model.root)
           .getSize(new Vector3());
         // A rotation-safe radius keeps the whole model inside the walls and edges.
-        const radius = Math.hypot(size.x, size.z) / 2;
+        const motion = createPetMotion(model);
+        const radius = Math.hypot(size.x, size.z) / 2 + motion.clearance;
         const mover = new Group();
-        const facing = new Group();
-        facing.add(model.root);
-        mover.add(facing);
-        model.root.traverse((child) => {
+        mover.add(motion.root);
+        motion.root.traverse((child) => {
           if (child instanceof Mesh) {
             child.castShadow = true;
             child.receiveShadow = true;
@@ -235,7 +273,7 @@ export default function Room({
         });
         pet = {
           mover,
-          facing,
+          motion,
           wander: createWander(
             Math.max(0.1, ROOM_SIZE / 2 - radius - 0.4),
             Math.random,
@@ -247,8 +285,16 @@ export default function Room({
             })),
           ),
         };
+        // Preserve the preview's angle relative to the viewer, not the room's axes.
+        const towardViewer = current.camera.getWorldDirection(new Vector3()).negate();
+        pet.wander.yaw = Math.atan2(towardViewer.x, towardViewer.z) + facingYaw;
+        pet.wander.wait = 3;
+        mover.position.set(pet.wander.x, 0, pet.wander.z);
+        mover.rotation.y = pet.wander.yaw;
+        motion.update(0, pet.wander);
+        manualHeading.current = null;
+        walking.current = true;
         current.pet = pet;
-        pet.facing.rotation.y = orientation.current;
         current.scene.add(mover);
         current.render();
         onReady();
@@ -262,10 +308,11 @@ export default function Room({
       if (pet) {
         if (current.pet === pet) current.pet = null;
         current.scene.remove(pet.mover);
+        pet.motion.dispose();
         disposeObject(pet.mover);
       }
       if (runtime.current === current) current.render();
     };
-  }, [asset, onReady, onError]);
-  return <div ref={host} className="room-canvas" />;
+  }, [asset, facingYaw, onReady, onError]);
+  return <div ref={host} className="room-canvas"><div ref={nameTag} className="pet-name-tag" hidden>{petName}</div></div>;
 }

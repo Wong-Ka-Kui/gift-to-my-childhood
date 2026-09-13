@@ -40,6 +40,8 @@ export default function App() {
     >
       <Room
         asset={asset}
+        petName={profile?.name ?? ""}
+        facingYaw={profile?.facingYaw ?? 0}
         onReady={onReady}
         onError={onError}
       />
@@ -49,6 +51,7 @@ export default function App() {
           onCancel={() => setPendingAsset(null)}
           onError={setError}
           onConfirm={(nextProfile) => {
+            setLoading(true);
             setProfile(nextProfile);
             setAsset(pendingAsset);
             setPendingAsset(null);
