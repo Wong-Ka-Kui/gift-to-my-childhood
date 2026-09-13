@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who are you?</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet">
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: #f2ecdd;
+    color: #2c2a25;
+    font-family: 'Patrick Hand', cursive;
+  }
+
+  h1 {
+    font-size: 44px;
+    font-weight: 400;
+    line-height: 1.1;
+    margin-top: 180px;
+    margin-bottom: -70px;
+  }
+
+  sketchy-avatar { width: 440px; height: 476px; }
+
+  .field { position: relative; width: 336px; height: 62px; }
+
+  .field input {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    padding: 0 24px;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: 'Patrick Hand', cursive;
+    font-size: 26px;
+    color: #2c2a25;
+  }
+
+  .field input::placeholder { color: #2c2a25; opacity: 0.35; }
+</style>
+</head>
+
+<body>
+  <h1>Who are you?</h1>
+
+  <sketchy-avatar seed="anonymous"></sketchy-avatar>
+
+  <div class="field">
+    <sketchy-box></sketchy-box>
+    <input id="username" placeholder="username…" maxlength="24" autocomplete="off" spellcheck="false">
+  </div>
+
+<script type="importmap">
+{ "imports": { "three": "./three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ── seeded random ───────────────────────────────────────────── */
+
+function hashSeed(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const rngFrom = (str) => mulberry32(hashSeed(str));
+const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+const jit = (rng, a) => (rng() - 0.5) * 2 * a;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ── brush engine ────────────────────────────────────────────── */
+
+const INK = '#2c2a25';
+const PAPER = '#f2ecdd';
+const ROSE = '#c05a48';
+
+// Multi-pass wobbly polyline — the core pencil look.
+function strokePts(ctx, rng, pts, o = {}) {
+  const { w = 5, passes = 2, wob = 3, color = INK, alpha = 0.9, close = false } = o;
+  const width = Math.max(1, w * 0.58);
+  const wobble = wob * 1.9;
+
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (let p = 0; p < passes; p++) {
+    ctx.globalAlpha = alpha * (p ? 0.4 : 1);
+    ctx.lineWidth = Math.max(1, width * (0.7 + rng() * 0.6));
+
+    const q = pts.map(pt => [pt[0] + jit(rng, wobble), pt[1] + jit(rng, wobble)]);
+    ctx.beginPath();
+    ctx.moveTo(q[0][0], q[0][1]);
+    for (let i = 1; i < q.length; i++) {
+      const a = q[i - 1], b = q[i];
+      ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    }
+    const last = q[q.length - 1];
+    ctx.lineTo(last[0], last[1]);
+    if (close) ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function ellipsePts(cx, cy, rx, ry, n = 18, a0 = 0, a1 = Math.PI * 2) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * i / n;
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+  }
+  return pts;
+}
+
+function line(ctx, rng, x0, y0, x1, y1, o = {}) {
+  const pts = [];
+  for (let i = 0; i <= 4; i++) pts.push([lerp(x0, x1, i / 4), lerp(y0, y1, i / 4)]);
+  strokePts(ctx, rng, pts, o);
+}
+
+function polyFill(ctx, rng, pts, color, alpha = 1) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function blobFill(ctx, rng, cx, cy, rx, ry, color, alpha = 1) {
+  const pts = ellipsePts(cx, cy, rx, ry, 14)
+    .map(p => [p[0] + jit(rng, rx * 0.07), p[1] + jit(rng, ry * 0.07)]);
+  polyFill(ctx, rng, pts, color, alpha);
+}
+
+function hatch(ctx, rng, cx, cy, r, o = {}) {
+  const { n = 5, color = INK, alpha = 0.16, w = 3 } = o;
+  for (let i = 0; i < n; i++) {
+    const off = (i - n / 2) * r * 0.3;
+    line(ctx, rng,
+      cx - r * 0.5 + off, cy + r * 0.55 + off * 0.3,
+      cx + off + r * 0.15, cy - r * 0.25 + off * 0.3,
+      { w, color, alpha, wob: 2, passes: 1 });
+  }
+}
+
+/* ── palettes ────────────────────────────────────────────────── */
+
+const ACCENTS = ['#a8503c', '#3f6f8e', '#6f7f3f', '#8a6a9c', '#b0813a', '#4f8a6b'];
+const NIGHT_ACCENTS = ['#7c2f3e', '#4a2f66', '#2f4a5e'];
+const SKINS = ['#f0e5cd', '#ecdcc4', '#e7d3be', '#f2e8d6'];
+
+function makePalette(rng, dark) {
+  if (dark) return { ink: INK, accent: pick(rng, NIGHT_ACCENTS), fill: '#e6ddc8', skin: '#e6ddc8' };
+  return { ink: INK, accent: pick(rng, ACCENTS), fill: '#f6f1e3', skin: pick(rng, SKINS) };
+}
+
+/* ── features ────────────────────────────────────────────────── */
+/* Each is a pure function over a canvas. They read ch.state so a
+   redraw reflects the current blink / gaze. */
+
+function drawEyes(ctx, W, H, rng, ch) {
+  const st = ch.state, pal = ch.pal;
+  const er = H * 0.30 * ch.eyeScale, cy = H * 0.52;
+  const px = st.lookX * er * 0.35, py = st.lookY * er * 0.3;
+
+  const closed = (x, r) =>
+    strokePts(ctx, rng, ellipsePts(x, cy, r, r * 0.45, 8, 0.2, Math.PI - 0.2), { w: 5, wob: 1.5, color: pal.ink });
+
+  if (ch.eyeV === 'many') {
+    [[W * 0.2, 0.6], [W * 0.5, 0.95], [W * 0.8, 0.6]].forEach(([x, s]) => {
+      const r = er * s;
+      if (st.blink) return closed(x, r);
+      blobFill(ctx, rng, x, cy, r, r, pal.ink, 0.95);
+      blobFill(ctx, rng, x + px * 0.6, cy + py * 0.6, r * 0.3, r * 0.3, PAPER);
+    });
+    return;
+  }
+
+  const ex = [W * 0.30, W * 0.70];
+  ex.forEach((x, i) => {
+    if (st.blink) {
+      closed(x, er);
+      if (ch.eyeV === 'glasses') strokePts(ctx, rng, ellipsePts(x, cy, er * 1.5, er * 1.4), { w: 4, wob: 2, color: pal.ink, close: true });
+      return;
+    }
+
+    switch (ch.eyeV) {
+      case 'dot':
+        blobFill(ctx, rng, x + px, cy + py, er * 0.42, er * 0.46, pal.ink);
+        blobFill(ctx, rng, x + px + er * 0.13, cy + py - er * 0.15, er * 0.12, er * 0.12, PAPER, 0.9);
+        break;
+
+      case 'sleepy':
+        strokePts(ctx, rng, ellipsePts(x, cy - er * 0.3, er, er * 0.7, 8, Math.PI + 0.2, Math.PI * 2 - 0.2), { w: 5, wob: 1.5, color: pal.ink });
+        blobFill(ctx, rng, x + px, cy + er * 0.15 + py * 0.5, er * 0.3, er * 0.25, pal.ink);
+        break;
+
+      case 'angry': {
+        strokePts(ctx, rng, ellipsePts(x, cy, er * 0.85, er * 0.9), { w: 4.5, wob: 1.5, color: pal.ink, close: true });
+        blobFill(ctx, rng, x + px, cy + py, er * 0.35, er * 0.35, pal.ink);
+        const s = i === 0 ? 1 : -1;
+        line(ctx, rng, x - s * er * 1.1, cy - er * 1.6, x + s * er * 0.8, cy - er * 0.9, { w: 6, color: pal.ink, wob: 2 });
+        break;
+      }
+
+      case 'glasses':
+        strokePts(ctx, rng, ellipsePts(x, cy, er * 1.5, er * 1.4), { w: 4, wob: 2, color: pal.ink, close: true });
+        blobFill(ctx, rng, x + px, cy + py, er * 0.4, er * 0.42, pal.ink);
+        if (i === 1) line(ctx, rng, ex[0] + er * 1.5, cy - er * 0.3, ex[1] - er * 1.5, cy - er * 0.3, { w: 4, color: pal.ink, wob: 1 });
+        break;
+
+      case 'hollow':
+        blobFill(ctx, rng, x, cy, er * 1.05, er * 1.15, pal.ink, 0.9);
+        blobFill(ctx, rng, x + px, cy + py, er * 0.3, er * 0.32, PAPER);
+        break;
+
+      default: // round
+        strokePts(ctx, rng, ellipsePts(x, cy, er, er * 1.05), { w: 4.5, wob: 1.8, color: pal.ink, close: true });
+        blobFill(ctx, rng, x + px, cy + py, er * 0.38, er * 0.42, pal.ink);
+        blobFill(ctx, rng, x + px + er * 0.12, cy + py - er * 0.14, er * 0.12, er * 0.12, PAPER, 0.95);
+    }
+  });
+}
+
+function drawMouth(ctx, W, H, rng, ch) {
+  const pal = ch.pal, cx = W / 2, cy = H * 0.42, mw = W * 0.34 * ch.mouthScale;
+  const o = { w: 5, wob: 2, color: pal.ink };
+
+  switch (ch.mouthV) {
+    case 'smile':
+      strokePts(ctx, rng, ellipsePts(cx, cy - H * 0.12, mw, H * 0.3, 10, 0.25, Math.PI - 0.25), o);
+      break;
+
+    case 'flat':
+      line(ctx, rng, cx - mw, cy, cx + mw * 0.9, cy + jit(rng, 4), o);
+      break;
+
+    case 'open':
+      blobFill(ctx, rng, cx, cy + H * 0.05, mw * 0.38, H * 0.17, ROSE, 0.55);
+      strokePts(ctx, rng, ellipsePts(cx, cy + H * 0.05, mw * 0.4, H * 0.18), { ...o, w: 4, close: true });
+      break;
+
+    case 'teeth':
+      strokePts(ctx, rng, ellipsePts(cx, cy - H * 0.1, mw, H * 0.32, 10, 0.2, Math.PI - 0.2), o);
+      line(ctx, rng, cx - mw * 0.85, cy + H * 0.02, cx + mw * 0.85, cy + H * 0.02, { ...o, w: 4 });
+      for (let i = -2; i <= 2; i++) {
+        line(ctx, rng, cx + i * mw * 0.32, cy + H * 0.02, cx + i * mw * 0.3, cy + H * 0.16, { ...o, w: 3, alpha: 0.8, passes: 1 });
+      }
+      break;
+
+    case 'catmouth': // little "w"
+      strokePts(ctx, rng, ellipsePts(cx - mw * 0.4, cy, mw * 0.4, H * 0.14, 6, 0.3, Math.PI - 0.3), { ...o, w: 4 });
+      strokePts(ctx, rng, ellipsePts(cx + mw * 0.4, cy, mw * 0.4, H * 0.14, 6, 0.3, Math.PI - 0.3), { ...o, w: 4 });
+      break;
+
+    case 'jagged': {
+      const pts = [];
+      for (let i = 0; i <= 8; i++) pts.push([cx - mw + (2 * mw) * i / 8, cy + (i % 2 ? H * 0.18 : -H * 0.05)]);
+      strokePts(ctx, rng, pts, { ...o, w: 4.5 });
+      break;
+    }
+  }
+}
+
+function drawNose(ctx, W, H, rng, ch) {
+  const pal = ch.pal, cx = W / 2, cy = H * 0.5;
+  const o = { w: 4.5, wob: 1.6, color: pal.ink };
+
+  const whiskers = () => {
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        line(ctx, rng, cx + s * W * 0.12, cy + (i - 1) * 6, cx + s * W * 0.46, cy + (i - 1) * 13 - 3,
+          { w: 2.5, color: pal.ink, wob: 2, passes: 1, alpha: 0.8 });
+      }
+    }
+  };
+
+  switch (ch.noseV) {
+    case 'curve':
+      strokePts(ctx, rng, [[cx - 4, cy - H * 0.22], [cx + 7, cy + H * 0.05], [cx - 6, cy + H * 0.12]], o);
+      break;
+
+    case 'button':
+      strokePts(ctx, rng, ellipsePts(cx, cy, W * 0.07, W * 0.06), { ...o, close: true });
+      break;
+
+    case 'big':
+      blobFill(ctx, rng, cx, cy, W * 0.12, H * 0.2, pal.skin, 0.7);
+      strokePts(ctx, rng, ellipsePts(cx, cy, W * 0.12, H * 0.2), { ...o, close: true });
+      blobFill(ctx, rng, cx - W * 0.05, cy + H * 0.1, 3, 3, pal.ink);
+      blobFill(ctx, rng, cx + W * 0.05, cy + H * 0.1, 3, 3, pal.ink);
+      break;
+
+    case 'triangle': // cat
+      blobFill(ctx, rng, cx, cy - 2, W * 0.06, H * 0.08, ROSE, 0.9);
+      strokePts(ctx, rng, [
+        [cx - W * 0.06, cy - H * 0.08], [cx + W * 0.06, cy - H * 0.08],
+        [cx, cy + H * 0.06], [cx - W * 0.06, cy - H * 0.08],
+      ], { ...o, w: 3.5 });
+      whiskers();
+      break;
+
+    case 'snout': // dog
+      blobFill(ctx, rng, cx, cy, W * 0.16, H * 0.22, ch.dark ? pal.fill : '#efe6d2', 0.85);
+      strokePts(ctx, rng, ellipsePts(cx, cy, W * 0.16, H * 0.22), { ...o, close: true });
+      blobFill(ctx, rng, cx, cy - H * 0.06, W * 0.05, H * 0.06, pal.ink);
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 3; i++) blobFill(ctx, rng, cx + s * W * 0.08, cy + H * 0.08 + i * 5, 1.8, 1.8, pal.ink, 0.8);
+      }
+      break;
+  }
+}
+
+function drawHair(ctx, W, H, rng, ch) {
+  const pal = ch.pal, cx = W / 2, base = H * 0.72;
+  const o = { w: 5, wob: 3, color: pal.ink };
+
+  switch (ch.hairV) {
+    case 'messy':
+      for (let i = 0; i < 7; i++) {
+        const x0 = cx + (rng() - 0.5) * W * 0.7;
+        strokePts(ctx, rng, [
+          [x0, base],
+          [x0 + jit(rng, 20), base - H * (0.3 + rng() * 0.35)],
+          [x0 + jit(rng, 34), base - H * 0.15],
+        ], { ...o, w: 4, passes: 1, alpha: 0.85 });
+      }
+      break;
+
+    case 'spiky': {
+      const pts = [];
+      for (let i = 0; i <= 10; i++) pts.push([cx - W * 0.35 + W * 0.7 * i / 10, base - (i % 2 ? H * 0.5 : H * 0.12)]);
+      strokePts(ctx, rng, pts, { ...o, w: 4.5 });
+      break;
+    }
+
+    case 'beret':
+      blobFill(ctx, rng, cx, base - H * 0.28, W * 0.29, H * 0.22, PAPER, 1);
+      blobFill(ctx, rng, cx, base - H * 0.28, W * 0.29, H * 0.22, pal.accent, 1);
+      strokePts(ctx, rng, ellipsePts(cx, base - H * 0.28, W * 0.29, H * 0.22), { ...o, close: true });
+      line(ctx, rng, cx, base - H * 0.5, cx + 4, base - H * 0.62, { ...o, w: 4 });
+      break;
+
+    case 'antennae':
+      for (const s of [-1, 1]) {
+        strokePts(ctx, rng, [
+          [cx + s * W * 0.12, base],
+          [cx + s * W * 0.2, base - H * 0.45],
+          [cx + s * W * 0.26, base - H * 0.72],
+        ], { ...o, w: 3.5 });
+        blobFill(ctx, rng, cx + s * W * 0.26, base - H * 0.76, 6, 6, pal.accent, 0.95);
+        strokePts(ctx, rng, ellipsePts(cx + s * W * 0.26, base - H * 0.76, 7, 7), { ...o, w: 2.5, close: true });
+      }
+      break;
+
+    case 'horns':
+      for (const s of [-1, 1]) {
+        strokePts(ctx, rng, [
+          [cx + s * W * 0.18, base],
+          [cx + s * W * 0.3, base - H * 0.4],
+          [cx + s * W * 0.24, base - H * 0.72],
+        ], { ...o, w: 7 });
+      }
+      break;
+
+    case 'helmet':
+      blobFill(ctx, rng, cx, base - H * 0.05, W * 0.36, H * 0.42, PAPER, 1);
+      blobFill(ctx, rng, cx, base - H * 0.05, W * 0.36, H * 0.42, pal.accent, 1);
+      strokePts(ctx, rng, ellipsePts(cx, base + H * 0.05, W * 0.36, H * 0.48, 12, Math.PI, Math.PI * 2), { ...o, w: 6 });
+      line(ctx, rng, cx - W * 0.36, base + H * 0.02, cx + W * 0.36, base + H * 0.02, { ...o, w: 5 });
+      for (let i = -1; i <= 1; i++) blobFill(ctx, rng, cx + i * W * 0.17, base - H * 0.22, 3, 3, pal.ink);
+      break;
+
+    case 'bald':
+      if (rng() < 0.4) {
+        for (let i = 0; i < 2; i++) line(ctx, rng, cx + i * 10 - 5, base, cx + i * 14 - 7, base - H * 0.3, { ...o, w: 3, passes: 1 });
+      }
+      break;
+  }
+}
+
+// One ear; the right side is the same texture mirrored via mesh scale.
+function drawEar(ctx, W, H, rng, ch) {
+  const pal = ch.pal, o = { w: 5, wob: 2, color: pal.ink };
+
+  // Opaque paper base + the head tint, so ears read as part of the head.
+  const base = (pts) => {
+    polyFill(ctx, rng, pts, PAPER, 1);
+    polyFill(ctx, rng, pts, ch.dark ? pal.fill : pal.skin, ch.dark ? 0.95 : 0.55);
+  };
+
+  switch (ch.earV) {
+    case 'human': {
+      const cx = W * 0.5, cy = H * 0.5, r = W * 0.33;
+      base(ellipsePts(cx, cy, r, r, 16));
+      strokePts(ctx, rng, ellipsePts(cx, cy, r, r, 16), { ...o, w: 6, wob: 1.5, close: true });
+      blobFill(ctx, rng, cx, cy + r * 0.05, r * 0.45, r * 0.45, ROSE, 0.3);
+      break;
+    }
+
+    case 'cat': {
+      const tri = [[W * 0.16, H * 0.98], [W * 0.46, H * 0.12], [W * 0.88, H * 0.82], [W * 0.16, H * 0.98]];
+      base(tri);
+      strokePts(ctx, rng, tri.slice(0, 3), { ...o, w: 6 }); // open base merges with the head
+      polyFill(ctx, rng, [[W * 0.35, H * 0.8], [W * 0.48, H * 0.36], [W * 0.7, H * 0.68]], ROSE, 0.55);
+      break;
+    }
+
+    case 'dog': { // floppy lobe hanging down
+      const pts = ellipsePts(W * 0.52, H * 0.52, W * 0.2, H * 0.4, 16);
+      polyFill(ctx, rng, pts, PAPER, 1);
+      polyFill(ctx, rng, pts, ch.dark ? pal.fill : pal.skin, ch.dark ? 0.95 : 0.6);
+      strokePts(ctx, rng, pts, { ...o, w: 5, wob: 1.8, close: true });
+      break;
+    }
+
+    case 'pointed': {
+      const tri = [[W * 0.2, H * 0.98], [W * 0.72, H * 0.12], [W * 0.78, H * 0.9], [W * 0.2, H * 0.98]];
+      base(tri);
+      strokePts(ctx, rng, tri.slice(0, 3), { ...o, w: 6 });
+      break;
+    }
+  }
+}
+
+function drawHead(ctx, W, H, rng, ch) {
+  const cx = W / 2, cy = H * 0.52;
+  const rx = W * 0.36 * ch.headW, ry = H * 0.38 * ch.headH;
+  const pts = ellipsePts(cx, cy, rx, ry, 16).map(p => [p[0] + jit(rng, rx * 0.05), p[1] + jit(rng, ry * 0.05)]);
+
+  polyFill(ctx, rng, pts, PAPER, 1); // opaque base so nothing shows through
+  polyFill(ctx, rng, pts, ch.dark ? ch.pal.fill : ch.pal.skin, ch.dark ? 1 : 0.55);
+  strokePts(ctx, rng, ellipsePts(cx, cy, rx, ry, 20), { w: 6, wob: 4, color: ch.pal.ink, close: true });
+
+  if (ch.dark) return;
+  hatch(ctx, rng, cx + rx * 0.5, cy + ry * 0.4, 38, { color: ch.pal.ink });
+  if (ch.blush) {
+    blobFill(ctx, rng, cx - rx * 0.6, cy + ry * 0.3, 13, 8, ch.pal.accent, 0.28);
+    blobFill(ctx, rng, cx + rx * 0.6, cy + ry * 0.3, 13, 8, ch.pal.accent, 0.28);
+  }
+}
+
+function drawTorso(ctx, W, H, rng, ch) {
+  const pal = ch.pal, cx = W / 2, cy = H * 0.52;
+  const rx = W * 0.34 * ch.bodyW, ry = H * 0.4;
+  const pts = ellipsePts(cx, cy, rx, ry, 16).map(p => [p[0] + jit(rng, rx * 0.05), p[1] + jit(rng, ry * 0.05)]);
+
+  polyFill(ctx, rng, pts, PAPER, 1);
+  polyFill(ctx, rng, pts, ch.dark ? pal.fill : pal.accent, ch.dark ? 1 : 0.32);
+  strokePts(ctx, rng, ellipsePts(cx, cy, rx, ry, 18), { w: 6, wob: 4, color: pal.ink, close: true });
+
+  if (ch.bodyDeco === 'buttons') {
+    for (let i = 0; i < 3; i++) blobFill(ctx, rng, cx + jit(rng, 3), cy - ry * 0.4 + i * ry * 0.4, 4.5, 4.5, pal.ink, 0.9);
+  }
+
+  if (ch.bodyDeco === 'stripes') {
+    for (let i = 0; i < 3; i++) {
+      line(ctx, rng, cx - rx * 0.85, cy - ry * 0.45 + i * ry * 0.45, cx + rx * 0.85, cy - ry * 0.4 + i * ry * 0.45,
+        { w: 5, color: pal.accent, wob: 3, passes: 1, alpha: 0.75 });
+    }
+  }
+
+  if (ch.bodyDeco === 'belly') {
+    blobFill(ctx, rng, cx, cy + ry * 0.25, rx * 0.55, ry * 0.5, ch.dark ? '#3a3140' : '#f6f1e3', 0.8);
+    strokePts(ctx, rng, ellipsePts(cx, cy + ry * 0.25, rx * 0.55, ry * 0.5, 12),
+      { w: 3.5, wob: 3, color: pal.ink, alpha: 0.6, passes: 1, close: true });
+  }
+
+  if (!ch.dark) hatch(ctx, rng, cx + rx * 0.55, cy + ry * 0.45, 34, { color: pal.ink, n: 4 });
+}
+
+// Shoulder joint is a light scribble into the torso; the arm bows around the belly.
+function drawArm(ctx, W, H, rng, ch) {
+  const bend = W * (0.26 + 0.14 * ch.bodyW + rng() * 0.06);
+  const x0 = W * 0.86, mid = x0 - bend, hx = x0 - bend * 0.7;
+
+  strokePts(ctx, rng, [[W * 0.99, H * 0.07], [x0 + (W * 0.99 - x0) * 0.35, H * 0.05], [x0, H * 0.04]],
+    { w: 3.5, wob: 4, color: ch.pal.ink, alpha: 0.45 });
+  strokePts(ctx, rng, [[x0, H * 0.04], [mid, H * 0.38], [hx, H * 0.86]], { w: 6, wob: 2.5, color: ch.pal.ink });
+
+  if (ch.dark && rng() < 0.6) { // claws
+    for (let i = -1; i <= 1; i++) line(ctx, rng, hx, H * 0.84, hx + i * 9 - 3, H * 0.97, { w: 3.5, color: ch.pal.ink, wob: 1.5, passes: 1 });
+  } else {
+    strokePts(ctx, rng, ellipsePts(hx, H * 0.9, W * 0.08, H * 0.05), { w: 4, wob: 1.5, color: ch.pal.ink, close: true });
+  }
+}
+
+// Cheering pose: thrown up and out in a V so the hand clears the head.
+function drawArmUp(ctx, W, H, rng, ch) {
+  const hx = W * 0.14, hy = H * 0.24;
+
+  strokePts(ctx, rng, [[W * 0.99, H * 0.98], [W * 0.925, H * 0.97], [W * 0.86, H * 0.96]],
+    { w: 3.5, wob: 4, color: ch.pal.ink, alpha: 0.45 });
+  strokePts(ctx, rng, [[W * 0.86, H * 0.96], [W * 0.44, H * 0.62], [hx, hy]], { w: 6, wob: 2.5, color: ch.pal.ink });
+
+  if (ch.dark) {
+    for (let i = -1; i <= 1; i++) line(ctx, rng, hx, hy, hx + i * 9 - 3, hy - H * 0.12, { w: 3.5, color: ch.pal.ink, wob: 1.5, passes: 1 });
+  } else {
+    strokePts(ctx, rng, ellipsePts(hx, hy - H * 0.04, W * 0.085, H * 0.05), { w: 4, wob: 1.5, color: ch.pal.ink, close: true });
+    for (let i = -1; i <= 1; i++) {
+      line(ctx, rng, hx + i * 6, hy - H * 0.08, hx + i * 11, hy - H * 0.15, { w: 3, color: ch.pal.ink, wob: 1.2, passes: 1, alpha: 0.9 });
+    }
+  }
+}
+
+function drawLeg(ctx, W, H, rng, ch) {
+  strokePts(ctx, rng, [[W * 0.5, H * 0.04], [W * 0.5 + jit(rng, 4), H * 0.55], [W * 0.5, H * 0.96]],
+    { w: 6, wob: 1.5, color: ch.pal.ink });
+}
+
+function drawGround(ctx, W, H, rng) {
+  const pts = [];
+  for (let i = 0; i <= 24; i++) pts.push([W * i / 24, H * 0.5 + jit(rng, 5)]);
+  strokePts(ctx, rng, pts, { w: 4, wob: 3, color: INK, alpha: 0.28, passes: 1 });
+}
+
+/* ── species tables ──────────────────────────────────────────── */
+
+const SPECIES = {
+  human: {
+    ear: 'human',
+    noses: ['curve', 'button', 'big'],
+    hairs: ['messy', 'beret', 'antennae', 'helmet', 'spiky', 'bald', 'messy'],
+    mouths: ['smile', 'smile', 'open', 'flat'],
+    eyes: ['round', 'round', 'dot', 'sleepy', 'glasses'],
+  },
+  cat: {
+    ear: 'cat',
+    noses: ['triangle'],
+    hairs: ['bald', 'bald', 'beret'],
+    mouths: ['catmouth', 'smile', 'flat'],
+    eyes: ['round', 'dot', 'sleepy'],
+  },
+  dog: {
+    ear: 'dog',
+    noses: ['snout'],
+    hairs: ['bald', 'messy'],
+    mouths: ['smile', 'open', 'flat'],
+    eyes: ['round', 'dot', 'sleepy'],
+  },
+  nightmare: {
+    ear: 'pointed',
+    noses: ['curve', 'triangle', 'button'],
+    hairs: ['horns', 'antennae', 'messy', 'spiky'],
+    mouths: ['jagged', 'teeth', 'open'],
+    eyes: ['hollow', 'many', 'angry', 'round'],
+  },
+};
+
+const SPECIES_ROLL = ['human', 'human', 'cat', 'dog', 'human', 'cat', 'dog'];
+
+/* ── canvas-textured plane ───────────────────────────────────── */
+
+function makePart(pxW, pxH, worldW, worldH, z = 0) {
+  const canvas = document.createElement('canvas');
+  canvas.width = pxW;
+  canvas.height = pxH;
+  const ctx = canvas.getContext('2d');
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldW, worldH),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+  );
+  mesh.position.z = z;
+
+  return {
+    mesh, tex,
+    redraw(fn) {
+      ctx.clearRect(0, 0, pxW, pxH);
+      fn(ctx, pxW, pxH);
+      tex.needsUpdate = true;
+    },
+    dispose() {
+      tex.dispose();
+      mesh.material.dispose();
+      mesh.geometry.dispose();
+    },
+  };
+}
+
+/* ── character ───────────────────────────────────────────────── */
+
+const HEAD_R = 0.34;    // invisible head sphere the features are pinned to
+const HEAD_PLANE = 1.05;
+const HEAD_BASE_Y = 1.16;
+
+class Character {
+  constructor(seed, nightmareChance) {
+    this.seed = seed;
+    this.boilN = 0;
+    const rng = this.rng = rngFrom(seed);
+
+    this.species = rng() < nightmareChance ? 'nightmare' : pick(rng, SPECIES_ROLL);
+    this.dark = this.species === 'nightmare';
+    this.pal = makePalette(rng, this.dark);
+    const sp = SPECIES[this.species];
+
+    this.headW = 1.0 + rng() * 0.25;
+    this.headH = 1.0 + rng() * 0.25;
+    this.bodyW = 0.85 + rng() * 0.35;
+    this.eyeScale = 1.05 + rng() * 0.35;
+    this.mouthScale = 0.65 + rng() * 0.35;
+
+    this.eyeV = pick(rng, sp.eyes);
+    this.mouthV = pick(rng, sp.mouths);
+    this.noseV = pick(rng, sp.noses);
+    this.hairV = pick(rng, sp.hairs);
+    this.earV = this.dark ? pick(rng, ['pointed', 'cat', 'human']) : sp.ear;
+    if (this.earV === 'cat' || this.earV === 'pointed') this.hairV = 'bald'; // no headgear over upright ears
+    this.blush = rng() < 0.9;
+    this.bodyDeco = pick(rng, this.species === 'human' ? ['buttons', 'stripes', 'none', 'none'] : ['belly', 'none', 'stripes']);
+
+    this.state = { blink: false, lookX: 0, lookY: 0 };
+
+    // independent animation clocks so no two characters sync up
+    this.phase = rng() * Math.PI * 2;
+    this.breathRate = 1.4 + rng() * 1.2;
+    this.swayRate = 0.5 + rng() * 0.7;
+    this.armRate = 0.7 + rng() * 0.9;
+    this.nextBlink = 1 + rng() * 4;
+    this.blinkEnd = 0;
+    this.nextGlance = 1 + rng() * 3;
+    this.holdUntil = 0;
+    this.nextExpr = 6 + rng() * 12;
+
+    this.yaw = 0; this.pitch = 0;
+    this.yawT = 0; this.pitchT = 0;
+    this.jumpStart = null;
+
+    this.parts = [];
+    this.build(rng);
+  }
+
+  // Fresh stream per redraw so re-inked strokes wobble differently ("boiling line").
+  boilRng() { return rngFrom(this.seed + ':' + (this.boilN++)); }
+
+  track(part) { this.parts.push(part); return part; }
+
+  build(rng) {
+    this.root = new THREE.Group();
+    this.body = new THREE.Group();
+    this.root.add(this.body);
+
+    this.bodyScale = (this.species === 'human' ? 0.9 : 0.78) * (0.9 + rng() * 0.2) * (this.dark ? 1.12 : 1);
+    this.body.scale.setScalar(this.bodyScale);
+
+    for (const s of [-1, 1]) {
+      const leg = this.track(makePart(48, 60, 0.16, 0.2, 0.001 * s));
+      leg.redraw((c, w, h) => drawLeg(c, w, h, rng, this));
+      leg.mesh.position.set(s * 0.12, 0.1, 0.002);
+      if (s === 1) leg.mesh.scale.x = -1;
+      this.body.add(leg.mesh);
+    }
+
+    this.torso = this.track(makePart(224, 224, 0.78, 0.82, 0.01));
+    this.torso.redraw((c, w, h) => drawTorso(c, w, h, rng, this));
+    this.torso.mesh.position.y = 0.5;
+    this.body.add(this.torso.mesh);
+
+    this.arms = [];
+    for (const s of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(s * 0.19 * this.bodyW, 0.66, 0.015); // just inside the torso outline, in front of it
+
+      const idle = this.track(makePart(96, 160, 0.38, 0.52));
+      idle.redraw((c, w, h) => drawArm(c, w, h, rng, this));
+      idle.mesh.position.set(s * 0.137, -0.2, 0);
+
+      const up = this.track(makePart(96, 160, 0.38, 0.52));
+      up.redraw((c, w, h) => drawArmUp(c, w, h, rng, this));
+      up.mesh.position.set(s * 0.137, 0.24, 0);
+      up.mesh.visible = false;
+
+      if (s === 1) { idle.mesh.scale.x = -1; up.mesh.scale.x = -1; }
+      pivot.add(idle.mesh, up.mesh);
+      pivot.userData = { s, base: s * -0.12, idleMesh: idle.mesh, upMesh: up.mesh };
+
+      this.body.add(pivot);
+      this.arms.push(pivot);
+    }
+
+    this.headGroup = new THREE.Group();
+    this.headGroup.position.y = HEAD_BASE_Y;
+    this.body.add(this.headGroup);
+
+    const head = this.track(makePart(256, 256, HEAD_PLANE, HEAD_PLANE, 0.02));
+    head.redraw((c, w, h) => drawHead(c, w, h, rng, this));
+    this.headGroup.add(head.mesh);
+
+    // Features pinned by (u,v) angle on the invisible head sphere.
+    this.features = [];
+    const addFeat = (part, u, v, rad, z) => {
+      part.mesh.position.z = z;
+      this.headGroup.add(part.mesh);
+      this.features.push({ part, u, v, rad });
+      return this.track(part);
+    };
+
+    this.eyes = addFeat(makePart(160, 64, 0.56, 0.22), 0, 0.22, HEAD_R, 0.03);
+    this.eyes.redraw((c, w, h) => drawEyes(c, w, h, this.boilRng(), this));
+
+    const wideNose = this.noseV === 'triangle' || this.noseV === 'snout';
+    const nose = addFeat(makePart(wideNose ? 192 : 96, 96, wideNose ? 0.72 : 0.36, 0.36), 0, -0.06, HEAD_R, 0.035);
+    nose.redraw((c, w, h) => drawNose(c, w, h, this.boilRng(), this));
+
+    this.mouth = addFeat(makePart(128, 80, 0.46, 0.29), 0, -0.52, HEAD_R, 0.032);
+    this.mouth.redraw((c, w, h) => drawMouth(c, w, h, this.boilRng(), this));
+
+    const hair = addFeat(makePart(256, 144, 0.95, 0.53), 0, 1.3, HEAD_R * 1.15, 0.038);
+    hair.redraw((c, w, h) => drawHair(c, w, h, this.boilRng(), this));
+
+    // Ears pin to the head ELLIPSE, not the sphere, so they touch the outline
+    // whatever the head proportions are.
+    const upright = this.earV === 'cat' || this.earV === 'pointed';
+    const ang = upright ? 0.5 : (this.earV === 'dog' ? 1.0 : 0.85);
+    const lift = upright ? 0.09 : (this.earV === 'dog' ? -0.02 : 0.04);
+    for (const s of [-1, 1]) {
+      const ear = this.track(makePart(96, 96, 0.36, 0.36));
+      ear.redraw((c, w, h) => drawEar(c, w, h, this.boilRng(), this));
+      if (s === 1) ear.mesh.scale.x = -1;
+      ear.mesh.position.z = 0.025; // in front of the head, behind the eyes
+      this.headGroup.add(ear.mesh);
+      this.features.push({ part: ear, ear: true, ang: s * ang, lift });
+    }
+
+    this.placeFeatures();
+  }
+
+  placeFeatures() {
+    const rxW = HEAD_PLANE * 0.36 * this.headW;
+    const ryW = HEAD_PLANE * 0.38 * this.headH;
+
+    for (const f of this.features) {
+      if (f.ear) {
+        f.part.mesh.position.x = Math.sin(f.ang + this.yaw * 0.8) * rxW * 0.93;
+        f.part.mesh.position.y = Math.cos(f.ang) * ryW * 0.93 - 0.02 + f.lift + Math.sin(this.pitch) * 0.06;
+      } else {
+        f.part.mesh.position.x = Math.sin(f.u + this.yaw) * f.rad * this.headW;
+        f.part.mesh.position.y = Math.sin(f.v + this.pitch) * f.rad * 0.92 * this.headH;
+      }
+    }
+  }
+
+  redrawEyes() { this.eyes.redraw((c, w, h) => drawEyes(c, w, h, this.boilRng(), this)); }
+  redrawMouth() { this.mouth.redraw((c, w, h) => drawMouth(c, w, h, this.boilRng(), this)); }
+
+  // nx/ny in [-1,1] relative to the head; ny positive = below.
+  lookAt(t, nx, ny, hold) {
+    this.yawT = clamp(nx, -1, 1) * 0.5;
+    this.pitchT = clamp(-ny * 0.35, -0.35, 0.3);
+    this.state.lookX = clamp(nx, -1, 1);
+    this.state.lookY = clamp(ny, -1, 1);
+    this.holdUntil = t + hold;
+    this.nextGlance = t + hold + 0.1;
+  }
+
+  celebrate(t) {
+    this.jumpStart = t;
+    const mouths = SPECIES[this.species].mouths;
+    this.mouthV = mouths.includes('smile') && this.rng() < 0.5 ? 'smile' : 'open';
+    this.redrawMouth();
+    this.yawT = 0;
+    this.pitchT = 0.22;
+    this.state.lookX = 0;
+    this.state.lookY = -0.8;
+    this.holdUntil = t + 1.4;
+    this.nextGlance = t + 1.5;
+    if (!this.state.blink) this.redrawEyes();
+  }
+
+  update(t, dt) {
+    const ph = this.phase;
+
+    const breath = Math.sin(t * this.breathRate + ph);
+    this.torso.mesh.scale.y = 1 + breath * 0.022;
+    this.headGroup.position.y = HEAD_BASE_Y + breath * 0.02;
+    this.root.rotation.z = Math.sin(t * this.swayRate + ph * 1.7) * 0.028;
+
+    // Hop: anticipation crouch → ballistic flight → landing squash.
+    let up = 0, squash = 1;
+    if (this.jumpStart != null) {
+      const e = t - this.jumpStart, A = 0.16, F = 0.58, L = 0.24;
+      if (e < A) {
+        squash = 1 - 0.1 * Math.sin((e / A) * Math.PI / 2);
+      } else if (e < A + F) {
+        const p = (e - A) / F;
+        up = 4 * p * (1 - p);
+        squash = 1 + Math.abs(1 - 2 * p) * 0.045;
+      } else if (e < A + F + L) {
+        squash = 1 - 0.08 * Math.sin(((e - A - F) / L) * Math.PI);
+      } else {
+        this.jumpStart = null;
+      }
+    }
+
+    this.root.position.y = up * 0.55;
+    const bs = this.bodyScale; // squash/stretch about the feet
+    this.body.scale.set(bs * (1 + (1 - squash) * 0.55), bs * squash, bs);
+
+    for (const g of this.arms) {
+      const cheering = up > 0.3;
+      const idle = g.userData.base + Math.sin(t * this.armRate + ph + g.userData.s) * 0.07;
+      g.userData.idleMesh.visible = !cheering;
+      g.userData.upMesh.visible = cheering;
+      g.rotation.z = cheering ? g.userData.s * 0.22 * up : idle * Math.max(0, 1 - up * 3);
+    }
+
+    if (!this.state.blink && t > this.nextBlink) {
+      this.state.blink = true;
+      this.blinkEnd = t + 0.1 + this.rng() * 0.08;
+      this.redrawEyes();
+    } else if (this.state.blink && t > this.blinkEnd) {
+      this.state.blink = false;
+      this.nextBlink = t + 1.5 + this.rng() * 5;
+      this.redrawEyes();
+    }
+
+    if (t > this.holdUntil && t > this.nextGlance) {
+      this.yawT = jit(this.rng, 0.45);
+      this.pitchT = jit(this.rng, 0.22);
+      this.state.lookX = clamp(this.yawT * 2.2, -1, 1);
+      this.state.lookY = clamp(-this.pitchT * 2.5, -1, 1);
+      this.nextGlance = t + 1.5 + this.rng() * 4;
+      if (!this.state.blink) this.redrawEyes();
+    }
+
+    const k = Math.min(1, dt * 5);
+    this.yaw = lerp(this.yaw, this.yawT, k);
+    this.pitch = lerp(this.pitch, this.pitchT, k);
+    this.headGroup.rotation.z = this.yaw * -0.12;
+    this.placeFeatures();
+
+    if (t > this.nextExpr) {
+      this.nextExpr = t + 7 + this.rng() * 14;
+      if (this.rng() < 0.5) {
+        this.mouthV = pick(this.rng, SPECIES[this.species].mouths);
+        this.redrawMouth();
+      }
+    }
+  }
+
+  dispose() { for (const p of this.parts) p.dispose(); }
+}
+
+/* ── <sketchy-avatar> ────────────────────────────────────────── */
+
+class SketchyAvatar extends HTMLElement {
+  static observedAttributes = ['seed', 'nightmare-chance'];
+
+  #seed = 'anonymous';
+  #nightmareChance = 0.12;
+  #char = null;
+  #ready = false;
+  #lastTrackDraw = 0;
+
+  set seed(v) {
+    v = String(v ?? '').trim() || 'anonymous';
+    if (v === this.#seed) return;
+    this.#seed = v;
+    if (this.#ready) this.#rebuild();
+  }
+  get seed() { return this.#seed; }
+
+  set nightmareChance(v) {
+    const n = clamp(parseFloat(v) || 0, 0, 1);
+    if (n === this.#nightmareChance) return;
+    this.#nightmareChance = n;
+    if (this.#ready) this.#rebuild();
+  }
+  get nightmareChance() { return this.#nightmareChance; }
+
+  attributeChangedCallback(name, _old, val) {
+    if (val == null) return;
+    if (name === 'seed') this.seed = val;
+    else this.nightmareChance = val;
+  }
+
+  connectedCallback() {
+    if (this.#ready) return;
+    this.style.cssText = 'display:block;position:relative;overflow:hidden;';
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.domElement.style.cssText = 'position:absolute;inset:0;display:block;';
+    this.appendChild(this.renderer.domElement);
+
+    this.scene = new THREE.Scene(); // transparent — the page paper shows through
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60);
+    this.camera.position.z = 20;
+    this.clock = new THREE.Clock();
+    this.lastT = 0;
+
+    this.ground = makePart(1024, 48, 1.6, 1.6 * 48 / 1024);
+    this.ground.redraw((c, w, h) => drawGround(c, w, h, rngFrom('avatar-ground')));
+    this.ground.mesh.position.set(0, -0.01, -0.05);
+    this.scene.add(this.ground.mesh);
+
+    this.resizeObserver = new ResizeObserver(() => this.#resize());
+    this.resizeObserver.observe(this);
+
+    this.#ready = true;
+    this.#rebuild();
+    this.#resize();
+
+    const loop = () => {
+      this.raf = requestAnimationFrame(loop);
+      const t = this.clock.getElapsedTime();
+      const dt = Math.min(0.05, t - this.lastT);
+      this.lastT = t;
+      this.#char?.update(t, dt);
+      this.renderer.render(this.scene, this.camera);
+    };
+    loop();
+  }
+
+  disconnectedCallback() {
+    cancelAnimationFrame(this.raf);
+    this.resizeObserver?.disconnect();
+    if (this.#char) { this.scene.remove(this.#char.root); this.#char.dispose(); }
+    this.ground?.dispose();
+    this.renderer?.dispose();
+  }
+
+  #rebuild() {
+    const prev = this.#char;
+    if (prev) { this.scene.remove(prev.root); prev.dispose(); }
+
+    const ch = this.#char = new Character(this.#seed, this.#nightmareChance);
+    this.scene.add(ch.root);
+
+    if (prev) { // keep gaze continuity while the seed changes mid-typing
+      Object.assign(ch, {
+        yaw: prev.yaw, pitch: prev.pitch, yawT: prev.yawT, pitchT: prev.pitchT,
+        holdUntil: prev.holdUntil, nextGlance: prev.nextGlance,
+      });
+      ch.state.lookX = prev.state.lookX;
+      ch.state.lookY = prev.state.lookY;
+      ch.redrawEyes();
+    }
+  }
+
+  #resize() {
+    const w = this.clientWidth || 300, h = this.clientHeight || 320;
+    const aspect = w / h;
+    this.renderer.setSize(w, h);
+
+    const viewH = Math.max(2.9, 2.3 / aspect); // character + jump headroom
+    const cy = 1.2;
+    this.camera.left = -viewH * aspect / 2;
+    this.camera.right = viewH * aspect / 2;
+    this.camera.top = cy + viewH / 2;
+    this.camera.bottom = cy - viewH / 2;
+    this.camera.updateProjectionMatrix();
+  }
+
+  // Continuous mouse follow.
+  track(nx, ny) {
+    const ch = this.#char;
+    if (!ch) return;
+    const t = this.clock.getElapsedTime();
+    ch.lookAt(t, nx, ny, 0.6);
+    if (!ch.state.blink && t - this.#lastTrackDraw > 0.12) {
+      this.#lastTrackDraw = t;
+      ch.redrawEyes();
+    }
+  }
+
+  // Glance down at the caret.
+  look(nx) {
+    const ch = this.#char;
+    if (!ch) return;
+    const t = this.clock.getElapsedTime();
+    ch.lookAt(t, nx, 0.85, 2.6);
+    ch.pitchT = -0.3;
+    if (!ch.state.blink) ch.redrawEyes();
+  }
+
+  celebrate() { this.#char?.celebrate(this.clock.getElapsedTime()); }
+}
+
+customElements.define('sketchy-avatar', SketchyAvatar);
+
+/* ── <sketchy-box> ───────────────────────────────────────────── */
+
+class SketchyBox extends HTMLElement {
+  connectedCallback() {
+    if (this.canvas) return;
+    this.style.cssText += ';display:block;position:absolute;inset:0;pointer-events:none;';
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+    this.appendChild(this.canvas);
+
+    this.seed = 'box-' + Math.floor(Math.random() * 1e9);
+    this.resizeObserver = new ResizeObserver(() => this.#draw());
+    this.resizeObserver.observe(this);
+    this.#draw();
+  }
+
+  disconnectedCallback() { this.resizeObserver?.disconnect(); }
+
+  #draw() {
+    const w = this.clientWidth, h = this.clientHeight;
+    if (!w || !h) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    const ctx = this.canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const rng = rngFrom(this.seed);
+    const m = 9;
+    const overshoot = () => 3 + rng() * 8; // the pen runs past each corner
+
+    const side = (x0, y0, x1, y1) => {
+      const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+      const ux = dx / len, uy = dy / len;
+      const o1 = overshoot(), o2 = overshoot();
+      const sx = x0 - ux * o1, sy = y0 - uy * o1;
+      const ex = x1 + ux * o2, ey = y1 + uy * o2;
+      const n = Math.max(3, Math.round(len / 55));
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        pts.push([sx + (ex - sx) * t, sy + (ey - sy) * t]);
+      }
+      strokePts(ctx, rng, pts, { w: 3.5, wob: 2.4, color: INK, passes: 2, alpha: 0.9 });
+    };
+
+    side(m, m + jit(rng, 3), w - m, m + jit(rng, 3));
+    side(w - m + jit(rng, 2), m, w - m + jit(rng, 2), h - m);
+    side(w - m, h - m + jit(rng, 3), m, h - m + jit(rng, 3));
+    side(m + jit(rng, 2), h - m, m + jit(rng, 2), m);
+  }
+}
+
+customElements.define('sketchy-box', SketchyBox);
+
+/* ── page wiring ─────────────────────────────────────────────── */
+
+const CELEBRATE_DELAY = 2000;
+const INPUT_PADDING = 24;
+
+const avatar = document.querySelector('sketchy-avatar');
+const input = document.getElementById('username');
+const measure = document.createElement('canvas').getContext('2d');
+
+let followMouse = true;
+let idleTimer;
+
+window.addEventListener('mousemove', (e) => {
+  if (!followMouse) return;
+  const r = avatar.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height * 0.35; // roughly the head
+  avatar.track((e.clientX - cx) / (r.width / 2), (e.clientY - cy) / (r.height / 2));
+});
+
+function lookAtCaret() {
+  measure.font = '26px "Patrick Hand", cursive';
+  const caret = input.selectionStart ?? input.value.length;
+  const textW = measure.measureText(input.value.slice(0, caret)).width;
+  const half = Math.max(1, input.clientWidth / 2);
+  avatar.look((INPUT_PADDING + textW - half) / half);
+}
+
+function armCelebration() {
+  clearTimeout(idleTimer);
+  if (!input.value.trim()) return;
+  idleTimer = setTimeout(() => avatar.celebrate(), CELEBRATE_DELAY);
+}
+
+input.addEventListener('input', () => {
+  avatar.seed = input.value;
+  lookAtCaret();
+  armCelebration();
+});
+
+input.addEventListener('keyup', lookAtCaret);
+input.addEventListener('click', lookAtCaret);
+input.addEventListener('focus', () => { followMouse = false; lookAtCaret(); });
+input.addEventListener('blur', () => { followMouse = true; });
+</script>
+</body>
+</html>
