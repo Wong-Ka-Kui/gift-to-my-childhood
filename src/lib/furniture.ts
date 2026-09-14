@@ -341,7 +341,8 @@ export function createFurniture(layout: FurnitureLayout = {}) {
     items.push({ id, label, group, footprint, position: { x: group.position.x, z: group.position.z } });
     root.add(group);
   }
-  root.add(createWindow());
+  const window = createWindow();
+  root.add(window);
   add("bed", "高架床", createBed());
   add("table", "圆桌", createTable(), true);
   add("stool-front", "小圆凳", createStool(-0.35, 1.5), true);
@@ -354,5 +355,5 @@ export function createFurniture(layout: FurnitureLayout = {}) {
       item.group.position.set(item.position.x, 0, item.position.z);
     });
   }
-  return { root, items };
+  return { root, items, window };
 }

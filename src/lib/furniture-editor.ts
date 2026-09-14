@@ -16,6 +16,7 @@ type Options = {
   controls: OrbitControls;
   furniture: { root: import("three").Group; items: FurnitureItem[] };
   getPets: () => PetBody[];
+  getCleanables?: () => PetFootprint[];
   canEdit: () => boolean;
   onActive: (active: boolean) => void;
   onCommit: (layout: FurnitureLayout) => void;
@@ -115,6 +116,7 @@ export function createFurnitureEditor(options: Options) {
     if (!active) return;
     const position = active.item.group.position;
     active.problem = active.onFloor ? placementProblem(active.item, position, furniture.items, options.getPets()) : "请放在房间地板上";
+    if (!active.problem && placementProblem(active.item, position, [], options.getCleanables?.() ?? [])) active.problem = "请先清扫这里的便便或纸团";
     tint(Boolean(active.problem));
     outlineMaterial.color.set(active.problem ? "#ec4941" : "#4a937b");
     shadowMaterial.color.set(active.problem ? "#dd5147" : "#36584d");
@@ -192,7 +194,7 @@ export function createFurnitureEditor(options: Options) {
       press = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, kind: "drop", item: active.item };
       move(event); capture(event); return;
     }
-    if (event.button !== 0 || press) return;
+    if (event.button !== 0 || press || !options.canEdit()) { tap = null; return; }
     const item = pick(event);
     if (!item) { tap = null; return; }
     consume(event);
@@ -230,6 +232,7 @@ export function createFurnitureEditor(options: Options) {
     }
   }
   function doubleClick(event: MouseEvent) {
+    if (!active && !options.canEdit()) { tap = null; return; }
     if (active || performance.now() - lastFinish < 150) { consume(event); return; }
     const item = pick(event);
     if (item) { consume(event); tap = null; begin(item, event); }

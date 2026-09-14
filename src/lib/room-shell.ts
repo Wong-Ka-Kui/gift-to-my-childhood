@@ -79,6 +79,9 @@ export function createRoomShell() {
     roughness: 0.9,
   });
   const trim = new MeshStandardMaterial({ color: "#fffbed", roughness: 0.8 });
+  const wallX = new Group(), wallZ = new Group();
+  wallX.name = "room-wall-x"; wallZ.name = "room-wall-z";
+  room.add(wallX, wallZ);
   const box = (
     w: number,
     h: number,
@@ -87,11 +90,12 @@ export function createRoomShell() {
     y: number,
     z: number,
     material: MeshStandardMaterial | MeshStandardMaterial[],
+    parent = room,
   ) => {
     const mesh = new Mesh(new BoxGeometry(w, h, d), material);
     mesh.position.set(x, y, z);
     mesh.receiveShadow = true;
-    room.add(mesh);
+    parent.add(mesh);
   };
   box(12.24, 0.26, 12.24, 0, -0.13, 0, [edge, edge, floor, edge, edge, edge]);
   box(12.24, WALL_HEIGHT, 0.18, 0, WALL_HEIGHT / 2, -6.03, [
@@ -101,7 +105,7 @@ export function createRoomShell() {
     wallEdge,
     wall,
     wallEdge,
-  ]);
+  ], wallZ);
   box(0.18, WALL_HEIGHT, 12.24, -6.03, WALL_HEIGHT / 2, 0, [
     wall,
     wallEdge,
@@ -109,11 +113,11 @@ export function createRoomShell() {
     wallEdge,
     wallEdge,
     wallEdge,
-  ]);
-  box(12.3, 0.17, 0.28, 0, WALL_HEIGHT, -6.03, trim);
-  box(0.28, 0.17, 12.3, -6.03, WALL_HEIGHT, 0, trim);
-  box(12, 0.19, 0.12, 0, 0.095, -5.88, trim);
-  box(0.12, 0.19, 12, -5.88, 0.095, 0, trim);
+  ], wallX);
+  box(12.3, 0.17, 0.28, 0, WALL_HEIGHT, -6.03, trim, wallZ);
+  box(0.28, 0.17, 12.3, -6.03, WALL_HEIGHT, 0, trim, wallX);
+  box(12, 0.19, 0.12, 0, 0.095, -5.88, trim, wallZ);
+  box(0.12, 0.19, 12, -5.88, 0.095, 0, trim, wallX);
   return room;
 }
 

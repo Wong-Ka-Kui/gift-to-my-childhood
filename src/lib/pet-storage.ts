@@ -1,6 +1,7 @@
 import { normalizeGuestName, validateGuestAvatar, type GuestProfile } from "./guest";
 import { MAX_PETS, type PetRecord } from "./pets";
 
+import { advanceHomeCare, cleanHomeItem, createHomeCare, type CareTick, type HomeCare } from "./home-items";
 import type { FurnitureLayout } from "./furniture-layout";
 
 const DB_NAME = "pet-room-storage";
@@ -10,7 +11,7 @@ const SESSION = "session";
 const GUEST_KEY = "guest";
 
 type StoredPet = PetRecord & { ownerId?: string; createdAt?: number };
-export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[]; furniture: FurnitureLayout };
+export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[]; furniture: FurnitureLayout; care: HomeCare };
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -65,17 +66,18 @@ function petsForGuest(records: StoredPet[], id: string): PetRecord[] {
   return records.filter((pet) => pet.ownerId === id)
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
     .slice(0, MAX_PETS)
-    .map(({ id, asset, profile }) => ({ id, asset, profile }));
+    .map(({ id, asset, profile, portrait }) => ({ id, asset, profile, portrait }));
 }
 
 export function loadLocalHome(): Promise<LocalHome> {
   return transaction("readonly", (tx, result) => {
     const guest = tx.objectStore(SESSION).get(GUEST_KEY);
     const layout = tx.objectStore(SESSION).get("furniture");
+    const care = tx.objectStore(SESSION).get("care");
     const pets = tx.objectStore(PETS).getAll();
     pets.onsuccess = () => {
       const current = (guest.result as GuestProfile | undefined) ?? null;
-      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [], furniture: current && layout.result?.ownerId === current.id ? layout.result.layout : {} });
+      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [], furniture: current && layout.result?.ownerId === current.id ? layout.result.layout : {}, care: current && care.result?.ownerId === current.id ? care.result.state : createHomeCare() });
     };
   });
 }
@@ -93,6 +95,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
       const current = existing ?? candidate;
       if (!existing) session.put(current, GUEST_KEY);
       const layout = session.get("furniture");
+      const care = session.get("care");
       const store = tx.objectStore(PETS);
       const pets = store.getAll();
       pets.onsuccess = () => {
@@ -104,7 +107,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
             store.put(pet);
           }
         }
-        result({ guest: current, pets: petsForGuest(records, current.id), furniture: layout.result?.ownerId === current.id ? layout.result.layout : {} });
+        result({ guest: current, pets: petsForGuest(records, current.id), furniture: layout.result?.ownerId === current.id ? layout.result.layout : {}, care: care.result?.ownerId === current.id ? care.result.state : createHomeCare() });
       };
     };
   });
@@ -139,6 +142,36 @@ export function saveFurnitureLayout(layout: FurnitureLayout, ownerId: string): P
     guest.onsuccess = () => {
       if (guest.result?.id !== ownerId) { tx.abort(); return; }
       store.put({ ownerId, layout }, "furniture");
+      result(undefined);
+    };
+  });
+}
+
+// Read and modify the latest save in one transaction: removal and payment are atomic,
+// including two tabs cleaning the same item at once. No model blobs are rewritten.
+export function updateHomeCare(ownerId: string, change: { tick: CareTick } | { cleanId: string }): Promise<{ care: HomeCare; reward: number }> {
+  return transaction("readwrite", (tx, result) => {
+    const store = tx.objectStore(SESSION);
+    const guest = store.get(GUEST_KEY);
+    const saved = store.get("care");
+    saved.onsuccess = () => {
+      if (guest.result?.id !== ownerId) { tx.abort(); return; }
+      const previous: HomeCare = saved.result?.ownerId === ownerId ? saved.result.state : createHomeCare();
+      const care = "tick" in change ? advanceHomeCare(previous, change.tick) : cleanHomeItem(previous, change.cleanId);
+      store.put({ ownerId, state: care }, "care");
+      result({ care, reward: care.coins - previous.coins });
+    };
+  });
+}
+
+export function savePetPortrait(id: string, portrait: string, ownerId: string): Promise<void> {
+  return transaction("readwrite", (tx, result) => {
+    const store = tx.objectStore(PETS);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const pet = request.result as StoredPet | undefined;
+      if (!pet || pet.ownerId !== ownerId) { tx.abort(); return; }
+      store.put({ ...pet, portrait });
       result(undefined);
     };
   });

@@ -15,4 +15,5 @@ export type PetRecord = {
   id: string;
   asset: ModelAsset;
   profile: PetProfile;
+  portrait?: string;
 };

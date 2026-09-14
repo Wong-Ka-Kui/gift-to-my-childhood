@@ -20,8 +20,10 @@ import type { PetProfile } from "../lib/pets";
 type Props = {
   asset: ModelAsset;
   saving?: boolean;
+  readOnly?: boolean;
+  initialProfile?: PetProfile;
   onCancel: () => void;
-  onConfirm: (profile: PetProfile) => void;
+  onConfirm?: (profile: PetProfile) => void;
   onError: (message: string) => void;
 };
 
@@ -34,11 +36,12 @@ const EMPTY_PROFILE: PetProfile = {
   facingYaw: 0,
 };
 
-function ModelPreview({ asset, onError, onReady, onFacingChange }: {
+function ModelPreview({ asset, onError, onReady, onFacingChange, initialYaw }: {
   asset: ModelAsset;
   onError: (message: string) => void;
   onReady: () => void;
   onFacingChange: (yaw: number) => void;
+  initialYaw: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -75,7 +78,7 @@ function ModelPreview({ asset, onError, onReady, onFacingChange }: {
     scene.add(grid);
     const camera = new PerspectiveCamera(28, 1, 0.1, 100);
     // Same elevation as the room; horizontal orbit selects the pet's entry facing.
-    camera.position.set(0, 3.72, 4.2);
+    camera.position.set(-Math.sin(initialYaw) * 4.2, 3.72, Math.cos(initialYaw) * 4.2);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -142,15 +145,21 @@ function ModelPreview({ asset, onError, onReady, onFacingChange }: {
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [asset, onError, onReady, onFacingChange]);
+  }, [asset, onError, onReady, onFacingChange, initialYaw]);
   return <div ref={host} className="pet-preview-canvas">{loading ? <div className="preview-loading"><span className="loading-dot" />正在准备 3D 预览…</div> : null}</div>;
 }
 
-export default function PetProfileCard({ asset, saving = false, onCancel, onConfirm, onError }: Props) {
-  const [profile, setProfile] = useState(EMPTY_PROFILE);
+export default function PetProfileCard({ asset, saving = false, readOnly = false, initialProfile = EMPTY_PROFILE, onCancel, onConfirm, onError }: Props) {
+  const [profile, setProfile] = useState(initialProfile);
   const [submitted, setSubmitted] = useState(false);
   const [ready, setReady] = useState(false);
-  const facingYaw = useRef(0);
+  const facingYaw = useRef(initialProfile.facingYaw);
+  const dialog = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.focus();
+    return () => previous?.focus();
+  }, []);
   const handleReady = useCallback(() => setReady(true), []);
   const handleFacing = useCallback((yaw: number) => { facingYaw.current = yaw; }, []);
   const update = (key: keyof PetProfile, value: string) =>
@@ -160,27 +169,45 @@ export default function PetProfileCard({ asset, saving = false, onCancel, onConf
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setSubmitted(true);
-    if (invalid || !ready || saving) return;
-    onConfirm({ ...profile, facingYaw: facingYaw.current, name: profile.name.trim(), introduction: profile.introduction.trim() });
+    if (readOnly || invalid || !ready || saving) return;
+    onConfirm?.({ ...profile, facingYaw: facingYaw.current, name: profile.name.trim(), introduction: profile.introduction.trim() });
   }
 
   return (
-    <section className="profile-overlay" aria-label="创建宠物档案">
+    <section ref={dialog} tabIndex={-1} className="profile-overlay" role="dialog" aria-modal="true" aria-label={readOnly ? "宠物档案（只读）" : "创建宠物档案"} onKeyDown={(event) => {
+      if (event.key === "Escape" && !saving) onCancel();
+      if (event.key !== "Tab") return;
+      const elements = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)');
+      if (!elements?.length) return;
+      const first = elements[0], last = elements[elements.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}>
       <div className="profile-card">
         <div className="profile-card-heading">
           <div>
-            <span className="eyebrow">NEW COMPANION</span>
-            <h1>为你的宠物写下第一章</h1>
-            <p>先看看它的样子，再告诉我们它是谁。确认后，它才会来到你的家园。</p>
+            <span className="eyebrow">{readOnly ? "COMPANION PROFILE" : "NEW COMPANION"}</span>
+            <h1>{readOnly ? profile.name : "为你的宠物写下第一章"}</h1>
+            <p>{readOnly ? "这是它入园时的档案，记录着独一无二的小个性。" : "先看看它的样子，再告诉我们它是谁。确认后，它才会来到你的家园。"}</p>
           </div>
-          <button className="icon-button" type="button" aria-label="取消导入" disabled={saving} onClick={onCancel}>×</button>
+          <button className="icon-button" type="button" aria-label={readOnly ? "关闭宠物档案" : "取消导入"} disabled={saving} onClick={onCancel}>×</button>
         </div>
         <div className="profile-card-body">
           <div className="preview-panel">
-            <ModelPreview asset={asset} onError={onError} onReady={handleReady} onFacingChange={handleFacing} />
-            <div className="preview-hint"><span className="drag-icon">↔</span> 拖动选择入园朝向 · 滚轮缩放</div>
+            <ModelPreview asset={asset} onError={onError} onReady={handleReady} onFacingChange={handleFacing} initialYaw={initialProfile.facingYaw} />
+            <div className="preview-hint"><span className="drag-icon">↔</span> {readOnly ? "拖动查看形象 · 滚轮缩放" : "拖动选择入园朝向 · 滚轮缩放"}</div>
           </div>
-          <form className="profile-form" onSubmit={submit} noValidate>
+          {readOnly ? <div className="profile-form profile-readonly">
+            <div className="form-intro"><span className="form-step">宠物档案</span><span className="readonly-badge">只读 · 入园资料</span></div>
+            <dl className="profile-details">
+              <div><dt>宠物名字</dt><dd>{profile.name}</dd></div>
+              <div><dt>性别</dt><dd>{profile.gender}</dd></div>
+              <div><dt>年龄</dt><dd>{profile.age} 岁</dd></div>
+              <div><dt>性格 MBTI</dt><dd>{profile.mbti}</dd></div>
+              <div className="profile-description"><dt>详细介绍</dt><dd>{profile.introduction || "还没有填写更多介绍。"}</dd></div>
+            </dl>
+            <div className="form-actions"><button className="primary-button" onClick={onCancel}>回到家园</button></div>
+          </div> : <form className="profile-form" onSubmit={submit} noValidate>
             <div className="form-intro">
               <span className="form-step">01 / 01</span>
               <span className="form-note">带 <b>*</b> 的是必填项</span>
@@ -194,7 +221,7 @@ export default function PetProfileCard({ asset, saving = false, onCancel, onConf
             <label>详细介绍 <span className="optional">选填</span><textarea value={profile.introduction} onChange={(e) => update("introduction", e.target.value)} placeholder="它喜欢什么？害怕什么？有什么特别的小习惯？" maxLength={280} rows={4} /><span className="char-count">{profile.introduction.length} / 280</span></label>
             {submitted && invalid ? <p className="form-error" role="alert">请先完成名字、性别、年龄和性格的填写。</p> : null}
             <div className="form-actions"><button className="secondary-button" type="button" disabled={saving} onClick={onCancel}>重新导入</button><button className="primary-button" type="submit" disabled={!ready || saving}>{saving ? "正在保存…" : "确认并进入家园"} <span>→</span></button></div>
-          </form>
+          </form>}
         </div>
       </div>
     </section>
