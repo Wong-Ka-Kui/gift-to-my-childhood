@@ -19,6 +19,7 @@ import type { PetProfile } from "../lib/pets";
 
 type Props = {
   asset: ModelAsset;
+  saving?: boolean;
   onCancel: () => void;
   onConfirm: (profile: PetProfile) => void;
   onError: (message: string) => void;
@@ -145,7 +146,7 @@ function ModelPreview({ asset, onError, onReady, onFacingChange }: {
   return <div ref={host} className="pet-preview-canvas">{loading ? <div className="preview-loading"><span className="loading-dot" />正在准备 3D 预览…</div> : null}</div>;
 }
 
-export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: Props) {
+export default function PetProfileCard({ asset, saving = false, onCancel, onConfirm, onError }: Props) {
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [submitted, setSubmitted] = useState(false);
   const [ready, setReady] = useState(false);
@@ -159,7 +160,7 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setSubmitted(true);
-    if (invalid || !ready) return;
+    if (invalid || !ready || saving) return;
     onConfirm({ ...profile, facingYaw: facingYaw.current, name: profile.name.trim(), introduction: profile.introduction.trim() });
   }
 
@@ -172,7 +173,7 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
             <h1>为你的宠物写下第一章</h1>
             <p>先看看它的样子，再告诉我们它是谁。确认后，它才会来到你的家园。</p>
           </div>
-          <button className="icon-button" type="button" aria-label="取消导入" onClick={onCancel}>×</button>
+          <button className="icon-button" type="button" aria-label="取消导入" disabled={saving} onClick={onCancel}>×</button>
         </div>
         <div className="profile-card-body">
           <div className="preview-panel">
@@ -192,7 +193,7 @@ export default function PetProfileCard({ asset, onCancel, onConfirm, onError }: 
             <label>性格 MBTI <b>*</b><select value={profile.mbti} onChange={(e) => update("mbti", e.target.value)}><option value="">选择它的性格</option>{["ENFP · 探险家", "INFP · 梦想家", "ENFJ · 照顾者", "INFJ · 观察者", "ENTP · 点子王", "INTP · 思考家", "ESFP · 开心果", "ISFP · 艺术家", "ESTP · 行动派", "ISTP · 修理匠", "ESFJ · 社交家", "ISFJ · 守护者", "ESTJ · 组织者", "ISTJ · 记录员", "ENTJ · 领队", "INTJ · 策划家"].map((item) => <option key={item}>{item}</option>)}</select></label>
             <label>详细介绍 <span className="optional">选填</span><textarea value={profile.introduction} onChange={(e) => update("introduction", e.target.value)} placeholder="它喜欢什么？害怕什么？有什么特别的小习惯？" maxLength={280} rows={4} /><span className="char-count">{profile.introduction.length} / 280</span></label>
             {submitted && invalid ? <p className="form-error" role="alert">请先完成名字、性别、年龄和性格的填写。</p> : null}
-            <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel}>重新导入</button><button className="primary-button" type="submit" disabled={!ready}>确认并进入家园 <span>→</span></button></div>
+            <div className="form-actions"><button className="secondary-button" type="button" disabled={saving} onClick={onCancel}>重新导入</button><button className="primary-button" type="submit" disabled={!ready || saving}>{saving ? "正在保存…" : "确认并进入家园"} <span>→</span></button></div>
           </form>
         </div>
       </div>

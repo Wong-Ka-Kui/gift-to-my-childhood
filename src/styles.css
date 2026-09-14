@@ -54,9 +54,6 @@ body {
   clip-path: inset(50%);
 }
 .import-button {
-  position: absolute;
-  top: 28px;
-  right: 32px;
   padding: 13px 26px;
   border: 1px solid #ffffffbb;
   border-radius: 14px;
@@ -96,6 +93,7 @@ body {
 }
 .room-feedback:empty { display: none; }
 .error {
+  z-index: 10;
   position: absolute;
   bottom: 24px;
   left: 50%;
@@ -200,9 +198,19 @@ body {
   .profile-form { padding: 24px 22px 25px; }
 }
 @media (max-width: 600px) {
-  .import-button {
-    top: 20px;
-    right: 20px;
-    padding: 11px 22px;
-  }
+  .import-button { padding: 11px 14px; font-size: 12px; }
+}
+
+.guest-entry-frame { display: block; border: 0; width: 100%; height: 100dvh; background: #f2ecdd; }
+.session-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100dvh; padding: 24px; background: #f2ecdd; color: #766e5e; text-align: center; font-size: 14px; }
+.room-toolbar { position: absolute; top: 24px; right: 28px; max-width: calc(100% - 40px); display: flex; align-items: center; gap: 12px; z-index: 2; }
+.guest-info { order: 1; display: flex; align-items: center; gap: 9px; padding: 5px 15px 5px 5px; border: 1px solid #ffffffa6; border-radius: 30px; background: #fffdf3ed; box-shadow: 0 5px 20px #365f4312; min-width: 0; }
+.guest-info img { flex-shrink: 0; display: block; border-radius: 50%; background: #f2ecdd; object-fit: cover; }
+.guest-info span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #39584b; font-size: 14px; }
+button:disabled { cursor: default; }
+@media (max-width: 600px) {
+  .room-toolbar { top: 16px; right: 16px; max-width: calc(100% - 32px); gap: 8px; }
+  .guest-info { gap: 6px; padding-right: 11px; }
+  .guest-info img { width: 36px; height: 36px; }
+  .guest-info span { max-width: 94px; font-size: 12px; }
 }

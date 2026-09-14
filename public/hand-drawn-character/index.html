@@ -1,13 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Who are you?</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet">
 
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,7 +17,7 @@
     gap: 6px;
     background: #f2ecdd;
     color: #2c2a25;
-    font-family: 'Patrick Hand', cursive;
+    font-family: 'Patrick Hand', 'Songti SC', 'PingFang SC', cursive;
   }
 
   h1 {
@@ -45,24 +41,49 @@
     border: none;
     outline: none;
     background: transparent;
-    font-family: 'Patrick Hand', cursive;
+    font-family: 'Patrick Hand', 'Songti SC', 'PingFang SC', cursive;
     font-size: 26px;
     color: #2c2a25;
   }
 
   .field input::placeholder { color: #2c2a25; opacity: 0.35; }
+
+  .guest-form, .guest-copy { display: none; }
+  body.guest-entry { min-height: 100dvh; padding: 28px 20px; gap: 0; }
+  .guest-entry h1 { margin: 0; font-size: clamp(30px, 5vw, 42px); }
+  .guest-entry .guest-copy { display: block; margin: 13px 0 0; font: 13px/1.7 'PingFang SC', system-ui, sans-serif; color: #8a8171; text-align: center; }
+  .guest-entry sketchy-avatar { width: min(400px, 100%); height: clamp(245px, 44dvh, 380px); }
+  .guest-entry .field { width: min(336px, 100%); height: 58px; }
+  .guest-entry .field input { font-size: 23px; }
+  .guest-entry .field:focus-within { outline: 2px solid #aca087; outline-offset: 4px; border-radius: 8px; }
+  .guest-entry .guest-form { display: flex; flex-direction: column; align-items: stretch; width: min(336px, 100%); margin-top: 19px; }
+  .guest-form button { border: 1px solid #39362e; border-radius: 11px; padding: 14px 24px; background: #39362e; color: #fffaf0; font: 15px 'PingFang SC', system-ui, sans-serif; cursor: pointer; }
+  .guest-form button:hover:enabled { background: #535044; }
+  .guest-form button:focus-visible { outline: 3px solid #93846b; outline-offset: 4px; }
+  .guest-form button:disabled { opacity: .45; cursor: default; }
+  .guest-form .guest-error { color: #a04935; font: 13px/1.5 system-ui, sans-serif; margin-top: 10px; text-align: center; }
+  .guest-error:empty { display: none; }
+  .guest-entry .save-note { font-size: 11px; margin-top: 17px; }
+  @media (max-height: 620px) { body.guest-entry { justify-content: flex-start; } }
 </style>
 </head>
 
 <body>
   <h1>Who are you?</h1>
+  <p class="guest-copy">写下你的名字，看看你在这里的样子。</p>
 
   <sketchy-avatar seed="anonymous"></sketchy-avatar>
 
   <div class="field">
     <sketchy-box></sketchy-box>
-    <input id="username" placeholder="username…" maxlength="24" autocomplete="off" spellcheck="false">
+    <input id="username" aria-label="用户名" form="guest-form" placeholder="username…" maxlength="24" autocomplete="off" spellcheck="false">
   </div>
+
+  <form id="guest-form" class="guest-form">
+    <button id="enter-room" type="submit" disabled>游客进入 →</button>
+    <p id="guest-error" class="guest-error" role="alert"></p>
+  </form>
+  <p class="guest-copy save-note">无需密码 · 名字和宠物会留在这个浏览器里</p>
 
 <script type="importmap">
 { "imports": { "three": "./three.module.js" } }
@@ -1011,6 +1032,23 @@ class SketchyAvatar extends HTMLElement {
     if (!ch.state.blink) ch.redrawEyes();
   }
 
+  // Capture the chosen character itself, with a tighter square portrait camera.
+  portrait() {
+    const camera = this.camera.clone();
+    camera.left = -0.95; camera.right = 0.95;
+    camera.top = 1.95; camera.bottom = 0.05;
+    camera.updateProjectionMatrix();
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(192, 192);
+    try {
+      renderer.render(this.scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    } finally {
+      renderer.dispose();
+      renderer.forceContextLoss();
+    }
+  }
+
   celebrate() { this.#char?.celebrate(this.clock.getElapsedTime()); }
 }
 
@@ -1116,6 +1154,38 @@ input.addEventListener('keyup', lookAtCaret);
 input.addEventListener('click', lookAtCaret);
 input.addEventListener('focus', () => { followMouse = false; lookAtCaret(); });
 input.addEventListener('blur', () => { followMouse = true; });
+
+const guestMode = new URLSearchParams(location.search).get('mode') === 'guest' && window.parent !== window;
+if (guestMode) {
+  document.body.classList.add('guest-entry');
+  document.querySelector('h1').textContent = '你叫什么名字？';
+  input.placeholder = '输入你的名字…';
+  const form = document.getElementById('guest-form');
+  const enter = document.getElementById('enter-room');
+  const error = document.getElementById('guest-error');
+  let saving = false;
+  const update = () => { enter.disabled = saving || !input.value.trim(); };
+  input.addEventListener('input', () => { error.textContent = ''; update(); });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (saving || !input.value.trim()) return;
+    try {
+      avatar.seed = input.value.trim();
+      const portrait = avatar.portrait();
+      saving = true; input.disabled = true;
+      enter.textContent = '正在进入…'; update();
+      parent.postMessage({ type: 'guest:enter', name: input.value.trim(), avatar: portrait }, location.origin);
+    } catch {
+      error.textContent = '头像生成失败，请刷新页面后重试。';
+    }
+  });
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || event.source !== parent || event.data?.type !== 'guest:error') return;
+    saving = false; input.disabled = false;
+    enter.textContent = '游客进入 →';
+    error.textContent = event.data.message; update();
+  });
+}
 </script>
 </body>
 </html>
