@@ -1,6 +1,8 @@
 import { normalizeGuestName, validateGuestAvatar, type GuestProfile } from "./guest";
 import { MAX_PETS, type PetRecord } from "./pets";
 
+import type { FurnitureLayout } from "./furniture-layout";
+
 const DB_NAME = "pet-room-storage";
 const DB_VERSION = 2;
 const PETS = "pets";
@@ -8,7 +10,7 @@ const SESSION = "session";
 const GUEST_KEY = "guest";
 
 type StoredPet = PetRecord & { ownerId?: string; createdAt?: number };
-export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[] };
+export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[]; furniture: FurnitureLayout };
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -69,10 +71,11 @@ function petsForGuest(records: StoredPet[], id: string): PetRecord[] {
 export function loadLocalHome(): Promise<LocalHome> {
   return transaction("readonly", (tx, result) => {
     const guest = tx.objectStore(SESSION).get(GUEST_KEY);
+    const layout = tx.objectStore(SESSION).get("furniture");
     const pets = tx.objectStore(PETS).getAll();
     pets.onsuccess = () => {
       const current = (guest.result as GuestProfile | undefined) ?? null;
-      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [] });
+      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [], furniture: current && layout.result?.ownerId === current.id ? layout.result.layout : {} });
     };
   });
 }
@@ -89,6 +92,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
       const existing = guest.result as GuestProfile | undefined;
       const current = existing ?? candidate;
       if (!existing) session.put(current, GUEST_KEY);
+      const layout = session.get("furniture");
       const store = tx.objectStore(PETS);
       const pets = store.getAll();
       pets.onsuccess = () => {
@@ -100,7 +104,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
             store.put(pet);
           }
         }
-        result({ guest: current, pets: petsForGuest(records, current.id) });
+        result({ guest: current, pets: petsForGuest(records, current.id), furniture: layout.result?.ownerId === current.id ? layout.result.layout : {} });
       };
     };
   });
@@ -124,6 +128,18 @@ export function savePet(pet: PetRecord, ownerId: string): Promise<void> {
         store.put({ ...pet, ownerId, createdAt: previous?.createdAt ?? Date.now() } satisfies StoredPet);
         result(undefined);
       };
+    };
+  });
+}
+
+export function saveFurnitureLayout(layout: FurnitureLayout, ownerId: string): Promise<void> {
+  return transaction("readwrite", (tx, result) => {
+    const store = tx.objectStore(SESSION);
+    const guest = store.get(GUEST_KEY);
+    guest.onsuccess = () => {
+      if (guest.result?.id !== ownerId) { tx.abort(); return; }
+      store.put({ ownerId, layout }, "furniture");
+      result(undefined);
     };
   });
 }

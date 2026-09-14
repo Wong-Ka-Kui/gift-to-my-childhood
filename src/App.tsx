@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Room from "./components/Room";
 import GuestEntry from "./components/GuestEntry";
+import type { FurnitureLayout } from "./lib/furniture-layout";
 import type { GuestProfile } from "./lib/guest";
 import PetProfileCard from "./components/PetProfileCard";
 import { validateFiles, type ModelAsset } from "./lib/assets";
 import { MAX_PETS, type PetRecord } from "./lib/pets";
-import { loadLocalHome, savePet, type LocalHome } from "./lib/pet-storage";
+import { loadLocalHome, savePet, saveFurnitureLayout, type LocalHome } from "./lib/pet-storage";
 
 export default function App() {
+  const [initialLayout, setInitialLayout] = useState<FurnitureLayout>({});
+  const [editingFurniture, setEditingFurniture] = useState(false);
+  const editingFurnitureRef = useRef(false);
+  const guestId = useRef<string | null>(null);
+  const onFurnitureEditing = useCallback((active: boolean) => {
+    editingFurnitureRef.current = active;
+    setEditingFurniture(active);
+  }, []);
   const input = useRef<HTMLInputElement>(null);
   const [pets, setPets] = useState<PetRecord[]>([]);
   const [pendingAsset, setPendingAsset] = useState<ModelAsset | null>(null);
@@ -19,6 +28,9 @@ export default function App() {
   const [restoring, setRestoring] = useState(true);
   const importBusy = useRef(false);
   const [error, setError] = useState("");
+  const onFurnitureLayout = useCallback((layout: FurnitureLayout) => {
+    if (guestId.current) void saveFurnitureLayout(layout, guestId.current).catch(() => setError("家具位置暂未保存，刷新后会回到上一次存档。请检查浏览器存储空间。"));
+  }, []);
   const onReady = useCallback((id: string) => {
     pendingPets.current.delete(id);
     if (!pendingPets.current.size) { importBusy.current = false; setLoading(false); }
@@ -28,6 +40,8 @@ export default function App() {
     importBusy.current = home.pets.length > 0;
     setLoading(home.pets.length > 0);
     setPets(home.pets);
+    guestId.current = home.guest?.id ?? null;
+    setInitialLayout(home.furniture);
     setGuest(home.guest);
   }, []);
   const onError = useCallback((message: string) => {
@@ -53,7 +67,7 @@ export default function App() {
     return () => { active = false; };
   }, [enterHome, restoreAttempt]);
   function importFiles(files: FileList) {
-    if (!guest || restoring || full || pendingAsset || importBusy.current) return;
+    if (!guest || editingFurnitureRef.current || restoring || full || pendingAsset || importBusy.current) return;
     try {
       const next = validateFiles(
         Array.from(files, (file) => ({ name: file.name, blob: file })),
@@ -83,6 +97,9 @@ export default function App() {
     >
       <Room
         pets={pets}
+        initialLayout={initialLayout}
+        onFurnitureEditing={onFurnitureEditing}
+        onFurnitureLayout={onFurnitureLayout}
         onReady={onReady}
         onError={onError}
         onPetError={onPetError}
@@ -116,7 +133,7 @@ export default function App() {
         className="file-input"
         type="file"
         multiple
-        disabled={restoring || full || loading || Boolean(pendingAsset)}
+        disabled={editingFurniture || restoring || full || loading || Boolean(pendingAsset)}
         accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp"
         aria-label="选择 3D 资源"
         onChange={(event) => {
@@ -131,11 +148,11 @@ export default function App() {
         </div>
         <button
           className="import-button"
-          disabled={restoring || full || loading || Boolean(pendingAsset)}
+          disabled={editingFurniture || restoring || full || loading || Boolean(pendingAsset)}
           title={full ? "房间最多可以放置 3 只宠物" : undefined}
           onClick={() => input.current?.click()}
         >
-          {restoring ? "正在恢复存档…" : loading ? "导入中…" : full ? "已满员 · 3 / 3" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
+          {editingFurniture ? "正在移动家具" : restoring ? "正在恢复存档…" : loading ? "导入中…" : full ? "已满员 · 3 / 3" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
         </button>
       </div>
       {error ? (

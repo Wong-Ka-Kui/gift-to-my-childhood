@@ -26,7 +26,9 @@ import { createWander, resumeWander, stepWander, type WanderState } from "../lib
 import { MAX_PETS, type PetRecord } from "../lib/pets";
 import { findPetSpawn, PET_GAP } from "../lib/pet-placement";
 import { createRoomShell, createBackdrop, ROOM_SIZE } from "../lib/room-shell";
-import { createFurniture, FURNITURE_OBSTACLES } from "../lib/furniture";
+import { createFurniture, type FurnitureItem } from "../lib/furniture";
+import { createFurnitureEditor } from "../lib/furniture-editor";
+import { expandedFurnitureObstacles, type FurnitureLayout } from "../lib/furniture-layout";
 import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 
 type PetRuntime = {
@@ -47,6 +49,7 @@ type Runtime = {
   pets: Map<string, PetRuntime>;
   loading: Set<string>;
   disposed: boolean;
+  furniture: FurnitureItem[];
 };
 
 function disposePet(pet: PetRuntime) {
@@ -64,11 +67,17 @@ function updateNeighbors(pet: PetRuntime, current: Runtime) {
 
 export default function Room({
   pets,
+  initialLayout,
+  onFurnitureEditing,
+  onFurnitureLayout,
   onReady,
   onError,
   onPetError,
 }: {
   pets: readonly PetRecord[];
+  initialLayout: FurnitureLayout;
+  onFurnitureEditing: (active: boolean) => void;
+  onFurnitureLayout: (layout: FurnitureLayout) => void;
   onReady: (id: string) => void;
   onError: (message: string) => void;
   onPetError: (id: string, message: string) => void;
@@ -76,6 +85,7 @@ export default function Room({
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<Runtime | null>(null);
   const feedback = useRef<HTMLDivElement>(null);
+  const startingLayout = useRef(initialLayout);
 
   useEffect(() => {
     const container = host.current!;
@@ -91,6 +101,7 @@ export default function Room({
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.75;
     renderer.shadowMap.enabled = true;
+    renderer.localClippingEnabled = true;
     renderer.shadowMap.type = PCFSoftShadowMap;
     renderer.domElement.setAttribute("aria-label", "宠物房间");
     container.appendChild(renderer.domElement);
@@ -130,7 +141,8 @@ export default function Room({
     sun.shadow.radius = 5;
     scene.add(sun);
     const room = createRoomShell();
-    room.add(createFurniture());
+    const furniture = createFurniture(startingLayout.current);
+    room.add(furniture.root);
     scene.add(room);
     const labelPosition = new Vector3();
     const render = () => {
@@ -144,7 +156,7 @@ export default function Room({
           label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
       }
     };
-    const current: Runtime = { scene, camera, render, pets: new Map(), loading: new Set(), disposed: false };
+    const current: Runtime = { scene, camera, render, pets: new Map(), loading: new Set(), disposed: false, furniture: furniture.items };
     runtime.current = current;
 
     // Dragging the pet rotates its horizontal facing. Blank-space drags remain
@@ -240,6 +252,26 @@ export default function Room({
       event.preventDefault();
       event.stopPropagation();
     };
+    const furnitureEditor = createFurnitureEditor({
+      canvas, camera, scene, controls, furniture,
+      getPets: () => Array.from(current.pets.values(), (pet) => ({ x: pet.wander.x, z: pet.wander.z, radius: pet.radius, height: pet.motion.height })),
+      canEdit: () => !gesture && !current.loading.size,
+      onActive: (active) => {
+        lastTap = null;
+        if (active) for (const pet of current.pets.values()) pet.wander.speed = 0;
+        onFurnitureEditing(active);
+      },
+      onCommit: (layout) => {
+        for (const pet of current.pets.values()) {
+          pet.wander.obstacles = expandedFurnitureObstacles(current.furniture, pet.radius);
+          pet.wander.targetX = pet.wander.x;
+          pet.wander.targetZ = pet.wander.z;
+          pet.wander.speed = 0;
+          pet.wander.wait = 0.8;
+        }
+        onFurnitureLayout(layout);
+      },
+    });
     canvas.addEventListener("pointerdown", onPointerDown, true);
     canvas.addEventListener("pointermove", onPointerMove, true);
     canvas.addEventListener("pointerup", stopPetRotation, true);
@@ -254,10 +286,12 @@ export default function Room({
           ? 0
           : Math.min((time - previousTime) / 1000, 0.05);
       previousTime = time;
-      controls.update();
+      if (controls.enabled) controls.update();
+      furnitureEditor.update();
       for (const pet of current.pets.values()) {
         const frameDelta = document.hidden ? 0 : delta;
-        if (pet.manualHeading !== null) {
+        if (furnitureEditor.active) { pet.wander.speed = 0; }
+        else if (pet.manualHeading !== null) {
           const turn = Math.atan2(Math.sin(pet.manualHeading - pet.wander.yaw), Math.cos(pet.manualHeading - pet.wander.yaw));
           pet.wander.yaw += MathUtils.clamp(turn, -0.85 * frameDelta, 0.85 * frameDelta);
           if (gesture?.pet !== pet && Math.abs(turn) < 0.015) pet.manualHeading = null;
@@ -288,6 +322,7 @@ export default function Room({
     observer.observe(container);
     resize();
     return () => {
+      furnitureEditor.dispose();
       runtime.current = null;
       current.disposed = true;
       current.loading.clear();
@@ -310,7 +345,7 @@ export default function Room({
       canvas.removeEventListener("dblclick", onDoubleClick, true);
       renderer.domElement.remove();
     };
-  }, [onError]);
+  }, [onError, onFurnitureEditing, onFurnitureLayout]);
 
   useEffect(() => {
     if (!runtime.current) return;
@@ -341,12 +376,7 @@ export default function Room({
         motion = createPetMotion(model);
         const radius = Math.hypot(size.x, size.z) / 2 + motion.clearance;
         const bound = Math.max(0.1, ROOM_SIZE / 2 - radius - 0.4);
-        const obstacles = FURNITURE_OBSTACLES.map((obstacle) => ({
-          minX: obstacle.minX - radius - 0.1,
-          maxX: obstacle.maxX + radius + 0.1,
-          minZ: obstacle.minZ - radius - 0.1,
-          maxZ: obstacle.maxZ + radius + 0.1,
-        }));
+        const obstacles = expandedFurnitureObstacles(current.furniture, radius);
         const others = Array.from(current.pets.values(), (pet) => ({ x: pet.wander.x, z: pet.wander.z, radius: pet.radius }));
         const spawn = findPetSpawn(bound, obstacles, radius, others, current.pets.size === 0);
         if (!spawn) throw new Error("房间暂时没有足够的空位，请稍后重新导入。");

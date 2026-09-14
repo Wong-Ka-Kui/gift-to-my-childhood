@@ -1,4 +1,5 @@
 import {
+  Box3,
   BufferGeometry,
   CanvasTexture,
   CylinderGeometry,
@@ -15,13 +16,9 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
-// Footprints in the floor plane. Room movement expands these by the pet radius.
-export const FURNITURE_OBSTACLES = [
-  { minX: -5.64, maxX: -2.72, minZ: -5.27, maxZ: -1.55 },
-  { minX: -3.16, maxX: -0.84, minZ: -0.06, maxZ: 2.26 },
-  { minX: -0.89, maxX: 0.19, minZ: 0.96, maxZ: 2.04 },
-  { minX: -2.61, maxX: -1.53, minZ: -3.67, maxZ: -2.59 },
-];
+import { placementProblem, type FurnitureFootprint, type FurnitureLayout, type PlacedFurniture } from "./furniture-layout";
+
+export type FurnitureItem = PlacedFurniture & { group: Group; label: string };
 
 const material = (color: string, roughness = 0.75) =>
   new MeshStandardMaterial({ color, roughness });
@@ -327,9 +324,35 @@ function createTable() {
   return table;
 }
 
-export function createFurniture() {
-  const furniture = new Group();
-  furniture.name = "home-furniture";
-  furniture.add(createWindow(), createBed(), createTable(), createStool(-0.35, 1.5), createStool(-2.07, -3.13));
-  return furniture;
+export function createFurniture(layout: FurnitureLayout = {}) {
+  const root = new Group();
+  root.name = "home-furniture";
+  const items: FurnitureItem[] = [];
+  function add(id: string, label: string, group: Group, round = false) {
+    group.name = id;
+    // Measure relative to the anchor; the bed's ladder is deliberately off-center.
+    group.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(group);
+    const minX = bounds.min.x - group.position.x, maxX = bounds.max.x - group.position.x;
+    const minZ = bounds.min.z - group.position.z, maxZ = bounds.max.z - group.position.z;
+    const footprint: FurnitureFootprint = round
+      ? { kind: "circle", radius: Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ), Math.abs(maxZ)) }
+      : { kind: "rect", minX, maxX, minZ, maxZ };
+    items.push({ id, label, group, footprint, position: { x: group.position.x, z: group.position.z } });
+    root.add(group);
+  }
+  root.add(createWindow());
+  add("bed", "高架床", createBed());
+  add("table", "圆桌", createTable(), true);
+  add("stool-front", "小圆凳", createStool(-0.35, 1.5), true);
+  add("stool-back", "小圆凳", createStool(-2.07, -3.13), true);
+  // Apply a saved layout together, so swapping two items remains valid on reload.
+  const restored = items.map((item) => ({ ...item, position: layout[item.id] ?? item.position }));
+  if (restored.every((item) => !placementProblem(item, item.position, restored))) {
+    items.forEach((item, index) => {
+      item.position = { ...restored[index].position };
+      item.group.position.set(item.position.x, 0, item.position.z);
+    });
+  }
+  return { root, items };
 }

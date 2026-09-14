@@ -214,3 +214,7 @@ button:disabled { cursor: default; }
   .guest-info img { width: 36px; height: 36px; }
   .guest-info span { max-width: 94px; font-size: 12px; }
 }
+
+.furniture-feedback { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 14px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #ffffffb3; border-radius: 16px; background: #fffdf3ed; color: #365c4c; box-shadow: 0 5px 20px #365f4320; font-size: 12px; }
+.furniture-feedback[hidden] { display: none; }
+.furniture-feedback button { flex-shrink: 0; border: 1px solid #d0ded3; border-radius: 8px; padding: 5px 10px; font: inherit; color: inherit; background: #fff; cursor: pointer; }
