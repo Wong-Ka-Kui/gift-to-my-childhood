@@ -86,8 +86,8 @@ export function createRoomView(camera: OrthographicCamera, controls: OrbitContro
 }
 
 /** Clone materials, not geometry/textures, so each wall can fade independently. */
-export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z" }[]) {
-  const groups = walls.map(({ root, axis }) => {
+export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side?: -1 | 1; center?: number }[]) {
+  const groups = walls.map(({ root, axis, side, center }) => {
     const materials = new Map<Material, Material>();
     const meshes: { mesh: Mesh; original: Material | Material[]; castShadow: boolean }[] = [];
     root.traverse((node) => {
@@ -99,14 +99,19 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z" }[]) 
       };
       node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
     });
-    return { root, axis, materials, meshes };
+    return { root, axis, side: side ?? -1, center: center ?? 0, materials, meshes };
   });
   const direction = new Vector3();
   return {
     update(camera: OrthographicCamera, enabled: boolean) {
       camera.getWorldDirection(direction).negate();
+      const cameraPosition = camera.position;
       for (const group of groups) {
-        const opacity = enabled ? 1 - MathUtils.smoothstep(-direction[group.axis], -.04, .22) : 1;
+        const coordinate = group.axis === "x" ? cameraPosition.x - group.center : cameraPosition.z - group.center;
+        // Show the far wall on each axis. The near wall is hidden so the
+        // cutaway always contains exactly two walls per room.
+        const selectedSide = coordinate >= 0 ? -1 : 1;
+        const opacity = group.side === (enabled ? selectedSide : -1) ? 1 : 0;
         group.root.visible = opacity > .005;
         for (const [original, material] of group.materials) {
           const transparent = original.transparent || opacity < 1;

@@ -12,9 +12,10 @@ export function createClassroom() {
   const cream = surface("#f8edcf"), plaster = surface("#eee6cd"), mint = surface("#a9c4ac");
   const wood = surface("#c99c60"), lightWood = surface("#e8c68b"), woodEdge = surface("#bd8e55");
   const steel = surface("#718e80", .5), rubber = surface("#596961"), paper = surface("#fff5dc");
-  const wallX = new Group(), wallZ = new Group();
+  const wallX = new Group(), wallZ = new Group(), wallXBack = new Group(), wallZBack = new Group();
   wallX.name = "classroom-window-wall"; wallZ.name = "classroom-blackboard-wall";
-  root.add(wallX, wallZ);
+  wallXBack.name = "classroom-door-wall"; wallZBack.name = "classroom-rear-window-wall";
+  root.add(wallX, wallZ, wallXBack, wallZBack);
 
   function box(parent: Group, name: string, size: XYZ, position: XYZ, material: Material, radius = .035) {
     const mesh = new Mesh(new RoundedBoxGeometry(...size, 2, Math.min(radius, ...size.map(v => v / 2))), material);
@@ -51,6 +52,20 @@ export function createClassroom() {
   box(wallX, "left-rail", [.08, .07, 8], [-4.89, 1.055, 0], cream);
   box(wallX, "left-skirting", [.09, .15, 8], [-4.89, .085, 0], cream);
   box(wallX, "left-cornice", [.25, .12, 8.27], [-5.02, 3.8, 0], cream);
+  // Opposite walls appear only while orbiting around the classroom.
+  box(wallXBack, "right-wall-front", [.18, 3.8, 3.05], [5.02, 1.9, -2.5], plaster);
+  box(wallXBack, "right-wall-rear", [.18, 3.8, 3.05], [5.02, 1.9, 2.5], plaster);
+  box(wallXBack, "right-wall-header", [.18, 1.35, 1.95], [5.02, 3.12, 0], plaster);
+  box(wallXBack, "door-frame", [.09, 2.55, 2.02], [4.9, 1.28, 0], wood);
+  box(wallXBack, "door", [.04, 2.35, 1.82], [4.84, 1.18, 0], surface("#c68f63"));
+  box(wallXBack, "door-handle", [.03, .08, .08], [4.8, 1.25, .62], steel, .01);
+  box(wallZBack, "rear-wall-left", [3.45, 3.8, .18], [-3.28, 1.9, 4.02], plaster);
+  box(wallZBack, "rear-wall-right", [3.45, 3.8, .18], [3.28, 1.9, 4.02], plaster);
+  box(wallZBack, "rear-wall-window-header", [3.1, 1.35, .18], [0, 3.12, 4.02], plaster);
+  box(wallZBack, "rear-window", [3.0, 1.72, .04], [0, 2.12, 3.91], surface("#9edee0"));
+  box(wallZBack, "rear-window-frame-top", [3.2, .10, .10], [0, 3.03, 3.86], cream);
+  box(wallZBack, "rear-window-frame-bottom", [3.2, .10, .10], [0, 1.20, 3.86], cream);
+  box(wallZBack, "rear-window-mullion", [.10, 1.82, .10], [0, 2.12, 3.86], cream);
 
   const skyMap = texture(512, 384, ctx => {
     const gradient = ctx.createLinearGradient(0, 0, 0, 384); gradient.addColorStop(0, "#a8d5da"); gradient.addColorStop(1, "#e6f0db"); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 512, 384);

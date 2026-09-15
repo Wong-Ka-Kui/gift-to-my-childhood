@@ -192,10 +192,15 @@ export default function Room({
     scene.add(classroom.root);
     const classroomFixtures = [...classroom.root.children];
     const cutaway = createWallCutaway([
-      { root: room.getObjectByName("room-wall-x")!, axis: "x" },
-      { root: room.getObjectByName("room-wall-z")!, axis: "z" },
-      { root: furniture.window, axis: "x" },
-      ...classroom.walls,
+      { root: room.getObjectByName("room-wall-x")!, axis: "x", side: -1, center: 0 },
+      { root: room.getObjectByName("room-wall-z")!, axis: "z", side: -1, center: 0 },
+      { root: room.getObjectByName("room-wall-x-back")!, axis: "x", side: 1, center: 0 },
+      { root: room.getObjectByName("room-wall-z-back")!, axis: "z", side: 1, center: 0 },
+      { root: furniture.window, axis: "x", side: -1, center: 0 },
+      { root: classroom.walls[0].root, axis: "x", side: -1, center: CLASSROOM_OFFSET },
+      { root: classroom.walls[1].root, axis: "z", side: -1, center: 0 },
+      { root: classroom.root.getObjectByName("classroom-door-wall")!, axis: "x", side: 1, center: CLASSROOM_OFFSET },
+      { root: classroom.root.getObjectByName("classroom-rear-window-wall")!, axis: "z", side: 1, center: 0 },
     ]);
     const labelPosition = new Vector3();
     const itemPosition = new Vector3();
