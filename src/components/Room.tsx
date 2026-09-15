@@ -35,7 +35,8 @@ import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 import { createClassroom } from "../classroom/model";
 import { findClassroomSpot } from "../classroom/campus";
 import type { WanderObstacle } from "../lib/wander";
-const CLASSROOM_OFFSET = 14;
+const CLASSROOM_OFFSET = 16;
+const CLASSROOM_SCALE = 1.25;
 
 type PetRuntime = {
   id: string;
@@ -180,6 +181,7 @@ export default function Room({
     room.add(furniture.root);
     scene.add(room);
     const classroom = createClassroom();
+    classroom.root.scale.setScalar(CLASSROOM_SCALE);
     const classroomObstacles: WanderObstacle[] = [];
     for (const item of classroom.root.children) {
       if (!["desk", "chair", "lectern"].includes(item.userData.kind) && item.name !== "teaching-platform") continue;
@@ -373,7 +375,7 @@ export default function Room({
         from, to: now,
         pets: Array.from(current.pets.values(), (pet) => ({ id: pet.id, x: pet.wander.x + CLASSROOM_OFFSET, z: pet.wander.z, radius: pet.radius, yaw: pet.wander.yaw, active: pet.walking && gesture?.pet !== pet })),
         obstacles: current.classroomObstacles.map(o => ({...o,minX:o.minX+CLASSROOM_OFFSET,maxX:o.maxX+CLASSROOM_OFFSET})),
-        area: { centerX: CLASSROOM_OFFSET, halfWidth: 4.5, halfDepth: 3.5 },
+        area: { centerX: CLASSROOM_OFFSET, halfWidth: 5.6, halfDepth: 4.4 },
       });
     };
     const careVisibility = () => { tickCare(); wasVisible = !document.hidden; careTime = Date.now(); };
@@ -410,7 +412,7 @@ export default function Room({
       const { width, height } = container.getBoundingClientRect();
       if (!width || !height) return;
       const aspect = width / height;
-      const span = Math.max(8.7, 15 / aspect);
+      const span = Math.max(10.2, 17 / aspect);
       camera.left = -span * aspect;
       camera.right = span * aspect;
       camera.top = span;

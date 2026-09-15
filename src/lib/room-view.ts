@@ -1,8 +1,8 @@
 import { MathUtils, Mesh, MOUSE, TOUCH, Vector3, type Material, type Object3D, type OrthographicCamera } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-export const DEFAULT_ROOM_POSITION = new Vector3(16.5, 19, 30);
-export const DEFAULT_ROOM_TARGET = new Vector3(6.5, .8, 0);
+export const DEFAULT_ROOM_POSITION = new Vector3(19, 21, 33);
+export const DEFAULT_ROOM_TARGET = new Vector3(7.5, .8, 0);
 
 /** Mode changes flush damping and captured gestures, preserving the play camera. */
 export function createRoomView(camera: OrthographicCamera, controls: OrbitControls, canvas: HTMLCanvasElement) {
@@ -59,7 +59,7 @@ export function createRoomView(camera: OrthographicCamera, controls: OrbitContro
     },
     focus(area: "all" | "bedroom" | "classroom") {
       settle();
-      const target = area === "all" ? DEFAULT_ROOM_TARGET : new Vector3(area === "bedroom" ? 0 : 14, .8, 0);
+      const target = area === "all" ? DEFAULT_ROOM_TARGET : new Vector3(area === "bedroom" ? 0 : 16, .8, 0);
       camera.position.copy(DEFAULT_ROOM_POSITION).sub(DEFAULT_ROOM_TARGET).add(target);
       controls.target.copy(target);
       camera.zoom = area === "all" ? 1 : 1.8;
