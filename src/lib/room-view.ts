@@ -99,7 +99,8 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
       };
       node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
     });
-    return { root, axis, side: side ?? -1, center: center ?? 0, materials, meshes };
+    const wallSide = side ?? -1;
+    return { root, axis, side: wallSide, center: center ?? 0, opacity: wallSide === -1 ? 1 : 0, materials, meshes };
   });
   const direction = new Vector3();
   return {
@@ -111,7 +112,12 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
         // Show the far wall on each axis. The near wall is hidden so the
         // cutaway always contains exactly two walls per room.
         const selectedSide = coordinate >= 0 ? -1 : 1;
-        const opacity = group.side === (enabled ? selectedSide : -1) ? 1 : 0;
+        const targetOpacity = group.side === (enabled ? selectedSide : -1) ? 1 : 0;
+        // Fade over several frames so a wall replacement feels like a camera
+        // cutaway instead of a binary pop. Keep depth writes aligned with the
+        // interpolated value to avoid a transient opaque occlusion.
+        group.opacity = MathUtils.damp(group.opacity, targetOpacity, 10, 1 / 60);
+        const opacity = group.opacity;
         group.root.visible = opacity > .005;
         for (const [original, material] of group.materials) {
           const transparent = original.transparent || opacity < 1;
