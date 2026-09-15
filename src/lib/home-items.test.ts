@@ -83,3 +83,26 @@ describe("home care", () => {
     expect(state.items).toHaveLength(2);
   });
 });
+
+
+describe("classroom care coordinates", () => {
+  it("spawns new litter within the separate classroom while preserving bedroom items", () => {
+    const oldItem = { id: "bedroom-paper", kind: "trash" as const, x: 2, z: 2, createdAt: 0 };
+    const state = createHomeCare();
+    state.items = [oldItem];
+    state.activeMsByPet.frog = PET_ACTIVE_MS;
+    state.trashRemainingMs = 0;
+    const classroomTick: CareTick = { ...tick, pets: [{ ...pet, x: 14 }], area: {centerX:14,halfWidth:4.5,halfDepth:3.5}, obstacles:[{minX:12,maxX:16,minZ:-3.8,maxZ:-2}] };
+    const next = advanceHomeCare(state, classroomTick, () => .5);
+    expect(next.items).toHaveLength(3);
+    expect(next.items[0]).toEqual(oldItem);
+    for (const item of next.items.slice(1)) {
+      expect(Math.abs(item.x-14)).toBeLessThanOrEqual(4.5);
+      expect(Math.abs(item.z)).toBeLessThanOrEqual(3.5);
+      expect(item.x < 11.62 || item.x > 16.38 || item.z > -1.62).toBe(true);
+    }
+    const cleaned = cleanHomeItem(next, next.items[1].id);
+    expect(cleaned.coins).toBe(5);
+    expect(cleaned.items).toContainEqual(oldItem);
+  });
+});

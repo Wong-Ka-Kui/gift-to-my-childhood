@@ -1,5 +1,11 @@
 # home
 
+## 独立黑白棋试玩
+
+运行 `npm run dev` 后访问 [黑白棋](http://127.0.0.1:5173/othello/index.html)。基于 MIT 开源项目 [Flip Buddies](https://github.com/deifos/Othello)，提供经典/增强模式的人机对战、角色、音效及本地存档。联网房间和排行榜暂未接入。
+
+游戏入口、样式、依赖与存档均独立于房间和手绘角色。源码在 `games/othello/`，静态产物在 `public/othello/`；开发、测试及重新构建方法见 [游戏说明](games/othello/README.md)。
+
 一个可直接验证 3D 宠物导入的卡通卧室场景：浅黄格纹地板、两面浅蓝矮墙、高架床、窗户、桌子和凳子。网页名称为 `home`。
 
 ## 运行

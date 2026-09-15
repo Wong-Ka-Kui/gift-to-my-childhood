@@ -286,3 +286,12 @@ button:disabled { cursor: default; }
   .view-help { bottom: 12px; width: max-content; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 13px 16px; }
   .view-help > div { width: 100%; align-items: center; margin: 0 0 4px; }
 }
+
+.room-area-switch { position: absolute; z-index: 2; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; padding: 6px; background: #fffdf3d9; border: 1px solid #ffffff99; border-radius: 18px; }
+.room-area-switch button { border: 0; border-radius: 12px; padding: 10px 16px; background: transparent; color: #547767; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.room-area-switch button[aria-pressed="true"] { background: #507865; color: #fff; }
+.room-area-switch button:disabled { opacity: .45; cursor: default; }
+.room-area-switch button:focus-visible { outline: 2px solid #507865; outline-offset: 2px; }
+.room-feedback:not(:empty) { bottom: 94px; }
+.is-inspecting .room-area-switch { display: none; }
+@media(max-width:760px) { .room-area-switch { bottom: 50px; } }

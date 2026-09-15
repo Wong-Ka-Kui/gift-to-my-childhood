@@ -15,6 +15,7 @@ export type CareTick = {
   to: number;
   pets: (PetFootprint & { id: string; active: boolean; yaw: number })[];
   obstacles: WanderObstacle[];
+  area?: { centerX: number; halfWidth: number; halfDepth: number };
 };
 export const CLEAN_REWARD = 5;
 export const PET_ACTIVE_MS = 2 * 60 * 60 * 1000;
@@ -28,6 +29,8 @@ export function createHomeCare(random = Math.random): HomeCare {
 
 export function findCleanableSpot(tick: CareTick, items: readonly CleanableItem[], near?: CareTick["pets"][number], random = Math.random) {
   const radius = CLEANABLE_RADIUS;
+  const area = tick.area ?? { centerX: 0, halfWidth: 5.4, halfDepth: 5.4 };
+  const within = (x: number, z: number) => Math.abs(x-area.centerX) < area.halfWidth && Math.abs(z) < area.halfDepth;
   const obstacles = [
     ...tick.obstacles.map((o) => ({ minX: o.minX - radius - .1, maxX: o.maxX + radius + .1, minZ: o.minZ - radius - .1, maxZ: o.maxZ + radius + .1 })),
     // Match the conservative boxes used in navigation so a new pile cannot
@@ -40,9 +43,13 @@ export function findCleanableSpot(tick: CareTick, items: readonly CleanableItem[
     const angle = near.yaw + Math.PI + i * Math.PI / 8;
     const distance = near.radius + radius + .24;
     const x = near.x + Math.sin(angle) * distance, z = near.z + Math.cos(angle) * distance;
-    if (Math.abs(x) < 5.4 && Math.abs(z) < 5.4 && !obstacles.some((o) => x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ) && others.every((p) => Math.hypot(x - p.x, z - p.z) >= radius + p.radius + .18)) return { x, z };
+    if (within(x, z) && !obstacles.some((o) => x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ) && others.every((p) => Math.hypot(x - p.x, z - p.z) >= radius + p.radius + .18)) return { x, z };
   }
-  return findPetSpawn(5.4, obstacles, radius, others, false, random);
+  const localObstacles = obstacles.map(o => ({ ...o, minX: o.minX-area.centerX, maxX: o.maxX-area.centerX }));
+  const bound = Math.max(area.halfWidth, area.halfDepth);
+  localObstacles.push({minX:-bound-1,maxX:bound+1,minZ:area.halfDepth,maxZ:bound+1}, {minX:-bound-1,maxX:bound+1,minZ:-bound-1,maxZ:-area.halfDepth});
+  const point = findPetSpawn(area.halfWidth, localObstacles, radius, others.map(p=>({...p,x:p.x-area.centerX})), false, random);
+  return point ? {x:point.x+area.centerX,z:point.z} : null;
 }
 
 /** Only elapsed, visible play time is submitted. Overlapping tabs cannot count it twice. */

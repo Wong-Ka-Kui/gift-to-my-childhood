@@ -12,6 +12,7 @@ import { loadLocalHome, savePet, saveFurnitureLayout, savePetPortrait, updateHom
 export default function App() {
   const [initialLayout, setInitialLayout] = useState<FurnitureLayout>({});
   const [inspecting, setInspecting] = useState(false);
+  const [focusArea, setFocusArea] = useState<"all" | "bedroom" | "classroom">("all");
   const [viewReset, setViewReset] = useState(0);
   const viewToggle = useRef<HTMLButtonElement>(null);
   const [editingFurniture, setEditingFurniture] = useState(false);
@@ -146,6 +147,7 @@ export default function App() {
         paused={Boolean(pendingAsset || selectedPet)}
         inspecting={inspecting}
         viewReset={viewReset}
+        focusArea={focusArea}
         onCareTick={onCareTick}
         onClean={onClean}
         onPortrait={onPortrait}
@@ -155,6 +157,9 @@ export default function App() {
         onError={onError}
         onPetError={onPetError}
       />
+      <nav className="room-area-switch" aria-label="房间取景">
+        {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} aria-pressed={focusArea === area} disabled={inspecting || editingFurniture || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
+      </nav>
       <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
       <nav className="pet-rail" aria-label="房间里的宠物">
         <span className="pet-rail-title">伙伴</span>
@@ -166,7 +171,7 @@ export default function App() {
       </nav>
       {inspecting ? <div className="view-help" id="view-instructions">
         <div role="status"><strong>360° 自由查看</strong><span>拖动旋转 · 滚轮 / 双指缩放</span></div>
-        <button type="button" onClick={() => { setViewReset((value) => value + 1); exitInspection(); }}>回到默认视角</button>
+        <button type="button" onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); exitInspection(); }}>回到默认视角</button>
         <button type="button" onClick={exitInspection}>退出查看</button>
       </div> : null}
       <div className="care-hint">点击便便或纸团清扫 · 每件 +5 金币</div>

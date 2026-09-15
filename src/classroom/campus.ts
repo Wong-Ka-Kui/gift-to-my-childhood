@@ -1,42 +1,7 @@
-import { Box3, Group, Vector3 } from "three";
-import { createRoomShell } from "../lib/room-shell";
-import { createFurniture } from "../lib/furniture";
-import type { FurnitureLayout } from "../lib/furniture-layout";
 import type { WanderObstacle } from "../lib/wander";
 import type { PetFootprint } from "../lib/pet-placement";
 import { PET_GAP } from "../lib/pet-placement";
-import { createClassroom, CLASSROOM_SIZE } from "./model";
-
-export const BEDROOM_X = -7.25;
-export const CLASSROOM_X = 7.25;
-
-export function createCampus(layout: FurnitureLayout = {}) {
-  const root = new Group(); root.name = "home-and-classroom";
-  const bedroom = createRoomShell(); bedroom.name = "bedroom";
-  const furniture = createFurniture(layout);
-  bedroom.add(furniture.root);
-  bedroom.position.x = BEDROOM_X;
-  const classroom = createClassroom();
-  // Independent foundations and walls, with more than three units of empty space.
-  classroom.root.position.x = CLASSROOM_X;
-  root.add(bedroom, classroom.root);
-  root.updateMatrixWorld(true);
-  const obstacles: WanderObstacle[] = [];
-  for (const item of classroom.root.children) {
-    if (!["desk", "chair", "lectern"].includes(item.userData.kind) && item.name !== "teaching-platform") continue;
-    const bounds = new Box3().setFromObject(item);
-    obstacles.push({ minX: bounds.min.x - CLASSROOM_X, maxX: bounds.max.x - CLASSROOM_X, minZ: bounds.min.z, maxZ: bounds.max.z });
-  }
-  return {
-    root, bedroom, classroom, obstacles,
-    walls: [
-      { root: bedroom.getObjectByName("room-wall-x")!, axis: "x" as const },
-      { root: bedroom.getObjectByName("room-wall-z")!, axis: "z" as const },
-      { root: furniture.window, axis: "x" as const },
-      ...classroom.walls,
-    ],
-  };
-}
+import { CLASSROOM_SIZE } from "./model";
 
 /** Place floor-standing visitors without intersecting furniture, walls or one another. */
 export function findClassroomSpot(radius: number, obstacles: readonly WanderObstacle[], others: readonly PetFootprint[], index: number) {
@@ -51,10 +16,3 @@ export function findClassroomSpot(radius: number, obstacles: readonly WanderObst
   candidates.sort((a, b) => Math.hypot(a.x - preferred.x, a.z - preferred.z) - Math.hypot(b.x - preferred.x, b.z - preferred.z));
   return candidates.find(p => free(p.x, p.z)) ?? null;
 }
-
-export const CAMPUS_VIEWS = {
-  overview: { target: new Vector3(-.5, .8, 0), horizontal: 14.3, vertical: 7.9 },
-  classroom: { target: new Vector3(CLASSROOM_X, 1, 0), horizontal: 7, vertical: 5.6 },
-  bedroom: { target: new Vector3(BEDROOM_X, .8, 0), horizontal: 8.2, vertical: 6.8 },
-};
-export type CampusView = keyof typeof CAMPUS_VIEWS;
