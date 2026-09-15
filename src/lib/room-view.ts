@@ -111,13 +111,16 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
         const coordinate = group.axis === "x" ? cameraPosition.x - group.center : cameraPosition.z - group.center;
         // Show the far wall on each axis. The near wall is hidden so the
         // cutaway always contains exactly two walls per room.
-        const selectedSide = coordinate >= 0 ? -1 : 1;
-        const targetOpacity = group.side === (enabled ? selectedSide : -1) ? 1 : 0;
-        // Fade over several frames so a wall replacement feels like a camera
-        // cutaway instead of a binary pop. Keep depth writes aligned with the
-        // interpolated value to avoid a transient opaque occlusion.
-        group.opacity = MathUtils.damp(group.opacity, targetOpacity, 10, 1 / 60);
-        const opacity = group.opacity;
+        // Blend continuously around the room's side axis. The two walls on an
+        // axis are complementary, so one fades out exactly as its opposite
+        // fades in while orbiting; there is no threshold pop or delayed start.
+        const blendRange = .95;
+        const blend = MathUtils.smoothstep(-blendRange, blendRange, coordinate);
+        const targetOpacity = enabled
+          ? (group.side === -1 ? blend : 1 - blend)
+          : (group.side === -1 ? 1 : 0);
+        group.opacity = targetOpacity;
+        const opacity = targetOpacity;
         group.root.visible = opacity > .005;
         for (const [original, material] of group.materials) {
           const transparent = original.transparent || opacity < 1;
