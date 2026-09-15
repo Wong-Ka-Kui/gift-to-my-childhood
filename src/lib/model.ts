@@ -35,7 +35,7 @@ export function disposeObject(object: Object3D) {
   });
   materials.forEach((material) => material.dispose());
 }
-export async function loadModel(asset: ModelAsset) {
+export async function loadModel(asset: ModelAsset, decoderPath = `${import.meta.env.BASE_URL}draco/`) {
   const main = asset.files.find((file) => file.name === asset.main);
   if (!main) throw new Error("找不到模型主文件。");
   const { data, json } = await readDocument(main.blob);
@@ -53,7 +53,7 @@ export async function loadModel(asset: ModelAsset) {
     return urls.get(file.name)!;
   });
   const draco = new DRACOLoader().setDecoderPath(
-    `${import.meta.env.BASE_URL}draco/`,
+    decoderPath,
   );
   const loader = new GLTFLoader(manager)
     .setDRACOLoader(draco)
