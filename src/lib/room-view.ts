@@ -111,12 +111,10 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
         const coordinate = group.axis === "x" ? cameraPosition.x - group.center : cameraPosition.z - group.center;
         // Show the far wall on each axis. The near wall is hidden so the
         // cutaway always contains exactly two walls per room.
-        // Start the handoff well before the camera reaches a wall. The wider
-        // overlap deliberately lets the outgoing wall remain faintly visible
-        // while the opposite wall is already appearing, creating the requested
-        // three-wall transition (with two translucent walls) instead of a late
-        // binary replacement.
-        const blendRange = 2.35;
+        // Blend continuously around the room's side axis. The two walls on an
+        // axis are complementary, so one fades out exactly as its opposite
+        // fades in while orbiting; there is no threshold pop or delayed start.
+        const blendRange = .95;
         const blend = MathUtils.smoothstep(-blendRange, blendRange, coordinate);
         const targetOpacity = enabled
           ? (group.side === -1 ? blend : 1 - blend)
