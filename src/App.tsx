@@ -8,6 +8,7 @@ import { validateFiles, type ModelAsset } from "./lib/assets";
 import { MAX_PETS, type PetRecord } from "./lib/pets";
 import { createHomeCare, type HomeCare, type CareTick } from "./lib/home-items";
 import { loadLocalHome, savePet, saveFurnitureLayout, savePetPortrait, updateHomeCare, type LocalHome } from "./lib/pet-storage";
+import BehaviorDiary from "./components/BehaviorDiary";
 
 export default function App() {
   const [initialLayout, setInitialLayout] = useState<FurnitureLayout>({});
@@ -36,6 +37,7 @@ export default function App() {
   const [pets, setPets] = useState<PetRecord[]>([]);
   const [error, setError] = useState("");
   const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
+  const [diaryOpen, setDiaryOpen] = useState(false);
   const [care, setCare] = useState<HomeCare>(createHomeCare);
   const [rewardMessage, setRewardMessage] = useState("");
   const rewardTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -157,6 +159,8 @@ export default function App() {
         onError={onError}
         onPetError={onPetError}
       />
+      <button type="button" className={`diary-tab${diaryOpen ? " is-open" : ""}`} onClick={() => setDiaryOpen((open) => !open)} aria-expanded={diaryOpen} aria-controls="pet-behavior-diary"><span aria-hidden="true">✦</span><b>行为<br />日记</b></button>
+      {diaryOpen ? <div id="pet-behavior-diary"><BehaviorDiary pets={pets} onClose={() => setDiaryOpen(false)} /></div> : null}
       <nav className="room-area-switch" aria-label="房间取景">
         {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} aria-pressed={focusArea === area} disabled={inspecting || editingFurniture || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
       </nav>
