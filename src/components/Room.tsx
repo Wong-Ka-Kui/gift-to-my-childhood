@@ -28,6 +28,7 @@ import { createFurniture, type FurnitureItem } from "../lib/furniture";
 import { createFurnitureEditor } from "../lib/furniture-editor";
 import type { FurnitureLayout } from "../lib/furniture-layout";
 import { CARE_TICK_MS, CLEANABLE_RADIUS, type CareTick, type CleanableItem } from "../lib/home-items";
+import { isWorldVisible } from "../lib/visibility";
 import { createCleanableModel } from "../lib/cleanable-model";
 import { capturePetPortrait } from "../lib/pet-portrait";
 import { createRoomView, createWallCutaway, DEFAULT_ROOM_POSITION, DEFAULT_ROOM_TARGET } from "../lib/room-view";
@@ -222,7 +223,7 @@ export default function Room({
           itemPointer.set(itemPosition.x, itemPosition.y); itemRay.setFromCamera(itemPointer, camera);
           const point = new Vector3(item.x, .24, item.z);
           itemRay.far = Math.max(0, point.distanceTo(itemRay.ray.origin) - .3);
-          let occluded = itemRay.intersectObjects([furniture.root, ...classroomFixtures], true).length > 0;
+          let occluded = itemRay.intersectObjects([furniture.root, ...classroomFixtures], true).some(hit => isWorldVisible(hit.object));
           // Pet models can contain millions of triangles. Match their interaction
           // spheres instead of raycasting all those triangles for each floor item.
           if (!occluded) for (const pet of current.pets.values()) {
