@@ -104,7 +104,7 @@ export function createFurnitureEditor(options: Options) {
   function capture(event: PointerEvent) { canvas.setPointerCapture(event.pointerId); }
   function release(id: number) { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); }
   function stopCamera() {
-    // Flush pan damping before measuring the cursor's floor offset.
+    // Flush camera damping before measuring the cursor's floor offset.
     const damping = controls.enableDamping;
     controls.enableDamping = false; controls.update(); controls.enableDamping = damping;
     controls.enabled = false;
@@ -180,7 +180,7 @@ export function createFurnitureEditor(options: Options) {
     const pointerId = press?.id;
     press = null; tap = null;
     if (pointerId !== undefined) release(pointerId);
-    controls.enabled = true; canvas.style.cursor = ""; cancel.hidden = true;
+    controls.enabled = true; canvas.style.cursor = "grab"; cancel.hidden = true;
     options.onActive(false);
     message.textContent = accepted ? `${item.label}已放置` : "已返回原来的位置";
     feedbackTimer = setTimeout(() => { hint.hidden = true; }, 1800);

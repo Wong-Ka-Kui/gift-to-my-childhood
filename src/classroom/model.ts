@@ -1,8 +1,9 @@
 import { CanvasTexture, CylinderGeometry, Group, Mesh, MeshStandardMaterial, PlaneGeometry, SphereGeometry, SRGBColorSpace, type Material } from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { createWindowView } from "../lib/window-view";
 
 type XYZ = [number, number, number];
-export const CLASSROOM_COUNTS = { windows: 2, blackboards: 1, lecterns: 1, desks: 3, chairs: 3 } as const;
+export const CLASSROOM_COUNTS = { windows: 2, blackboards: 1, lecterns: 1, desks: 4, chairs: 4 } as const;
 export const CLASSROOM_SIZE = { width: 10, depth: 8, height: 3.8 } as const;
 
 export function createClassroom() {
@@ -56,28 +57,33 @@ export function createClassroom() {
   box(wallXBack, "right-wall-front", [.18, 3.8, 3.05], [5.02, 1.9, -2.5], plaster);
   box(wallXBack, "right-wall-rear", [.18, 3.8, 3.05], [5.02, 1.9, 2.5], plaster);
   box(wallXBack, "right-wall-header", [.18, 1.35, 1.95], [5.02, 3.12, 0], plaster);
-  box(wallXBack, "door-frame", [.09, 2.55, 2.02], [4.9, 1.28, 0], wood);
-  box(wallXBack, "door", [.04, 2.35, 1.82], [4.84, 1.18, 0], surface("#c68f63"));
-  box(wallXBack, "door-handle", [.03, .08, .08], [4.8, 1.25, .62], steel, .01);
+  box(wallXBack, "door-jamb-left", [.09, 2.55, .10], [4.9, 1.28, -1.01], wood);
+  box(wallXBack, "door-jamb-right", [.09, 2.55, .10], [4.9, 1.28, 1.01], wood);
+  box(wallXBack, "door-header", [.09, .10, 2.12], [4.9, 2.55, 0], wood);
+  box(wallXBack, "door", [.045, 2.35, 1.82], [4.96, 1.18, 0], surface("#c68f63"));
+  box(wallXBack, "door-handle", [.03, .08, .08], [4.94, 1.25, .62], steel, .01);
   box(wallZBack, "rear-wall-left", [3.45, 3.8, .18], [-3.28, 1.9, 4.02], plaster);
   box(wallZBack, "rear-wall-right", [3.45, 3.8, .18], [3.28, 1.9, 4.02], plaster);
-  box(wallZBack, "rear-wall-window-header", [3.1, 1.35, .18], [0, 3.12, 4.02], plaster);
-  box(wallZBack, "rear-window", [3.0, 1.72, .04], [0, 2.12, 3.91], surface("#9edee0"));
-  box(wallZBack, "rear-window-frame-top", [3.2, .10, .10], [0, 3.03, 3.86], cream);
-  box(wallZBack, "rear-window-frame-bottom", [3.2, .10, .10], [0, 1.20, 3.86], cream);
-  box(wallZBack, "rear-window-mullion", [.10, 1.82, .10], [0, 2.12, 3.86], cream);
-
-  const skyMap = texture(512, 384, ctx => {
-    const gradient = ctx.createLinearGradient(0, 0, 0, 384); gradient.addColorStop(0, "#a8d5da"); gradient.addColorStop(1, "#e6f0db"); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 512, 384);
-    ctx.fillStyle = "#fff9dc"; ctx.beginPath(); ctx.arc(388, 79, 28, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#ffffee";
-    for (const [x, y] of [[95, 97], [267, 163]]) { ctx.beginPath(); ctx.ellipse(x, y, 55, 13, 0, 0, Math.PI * 2); ctx.ellipse(x - 15, y - 10, 20, 20, 0, 0, Math.PI * 2); ctx.ellipse(x + 13, y - 14, 27, 22, 0, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = "#b7c99e"; ctx.beginPath(); ctx.moveTo(0, 325); ctx.bezierCurveTo(160, 245, 250, 385, 512, 296); ctx.lineTo(512, 384); ctx.lineTo(0, 384); ctx.fill();
-  });
+  box(wallZBack, "rear-wall-window-header", [3.11, .82, .18], [0, 3.39, 4.02], plaster);
+  box(wallZBack, "rear-wall-window-base", [3.11, 1.26, .18], [0, .63, 4.02], plaster);
+  box(wallZBack, "rear-wainscot", [10, 1.02, .04], [0, .51, 3.91], mint, .012);
+  box(wallZBack, "rear-rail", [10.1, .07, .08], [0, 1.055, 3.89], cream);
+  box(wallZBack, "rear-skirting", [10, .15, .09], [0, .085, 3.89], cream);
+  box(wallZBack, "rear-cornice", [10.27, .12, .25], [0, 3.8, 4.02], cream);
+  const rearWindow = createWindowView(3.11, 1.72);
+  rearWindow.position.set(0, 2.12, 3.99);
+  rearWindow.rotation.y = Math.PI;
+  wallZBack.add(rearWindow);
+  box(wallZBack, "rear-window-frame-top", [3.29, .10, .15], [0, 3.03, 3.86], cream);
+  box(wallZBack, "rear-window-frame-bottom", [3.29, .10, .15], [0, 1.21, 3.86], cream);
+  for (const x of [-1.605, 1.605]) box(wallZBack, "rear-window-jamb", [.10, 1.82, .15], [x, 2.12, 3.86], cream);
+  box(wallZBack, "rear-window-mullion", [.07, 1.72, .12], [0, 2.12, 3.84], cream);
+  box(wallZBack, "rear-window-crossbar", [3.11, .055, .12], [0, 2.30, 3.84], cream);
+  box(wallZBack, "rear-window-sill", [3.51, .12, .4], [0, 1.10, 3.82], lightWood);
   for (const [i, z] of [-1.9, 1.9].entries()) {
     const window = new Group(); window.name = `window-${i + 1}`; window.userData.kind = "window";
     window.position.set(-4.98, 2.3, z); window.rotation.y = Math.PI / 2; wallX.add(window);
-    panel(window, "daylight", 2.3, 1.7, [0, 0, -.005], skyMap);
+    window.add(createWindowView(2.3, 1.7));
     for (const x of [-1.17, 1.17]) box(window, "window-jamb", [.12, 1.87, .15], [x, 0, .05], cream);
     for (const y of [-.89, .89]) box(window, "window-frame", [2.46, .12, .15], [0, y, .05], cream);
     box(window, "window-mullion", [.065, 1.7, .12], [0, 0, .08], cream, .012);
@@ -121,7 +127,7 @@ export function createClassroom() {
   for (let i = 0; i < 3; i++) { const pencil = cylinder(lectern, "pencil", .012, .27, [.84 + .026 * i, 1.5, -.1], lightWood); pencil.rotation.z = (i - 1) * .1; }
   cup.userData.decoration = true;
 
-  for (const [index, [x, z]] of [[-2, -.1], [1.75, -.1], [0, 2.15]].entries()) {
+  for (const [index, [x, z]] of [[-2.35, -1.2], [2.35, -1.2], [-2.35, 1.45], [2.35, 1.45]].entries()) {
     const desk = new Group(); desk.name = `student-desk-${index + 1}`; desk.userData.kind = "desk"; desk.position.set(x, 0, z); root.add(desk);
     box(desk, "desk-top", [1.65, .12, .95], [0, 1.02, 0], lightWood, .055);
     box(desk, "desk-apron", [1.41, .2, .73], [0, .84, 0], wood);
@@ -130,16 +136,16 @@ export function createClassroom() {
       cylinder(desk, "desk-foot", .041, .075, [dx, .0375, dz], rubber);
     }
     box(desk, "desk-crossbar", [1.3, .045, .045], [0, .31, -.32], steel, .014);
-    notebook(desk, -.3, 1.08, -.02, ["#7eaaa1", "#cf9579", "#afacc3"][index]);
+    notebook(desk, -.3, 1.08, -.02, ["#7eaaa1", "#cf9579", "#afacc3", "#9aac78"][index]);
     box(desk, "student-pencil", [.28, .024, .024], [.4, 1.095, .16], woodEdge, .005).rotation.y = -.15;
-    const chair = new Group(); chair.name = `student-chair-${index + 1}`; chair.userData.kind = "chair"; chair.position.set(x, 0, z + .94); root.add(chair);
-    box(chair, "seat", [.69, .095, .63], [0, .56, 0], lightWood, .055);
-    for (const dx of [-.255, .255]) for (const dz of [-.23, .23]) {
+    const chair = new Group(); chair.name = `student-chair-${index + 1}`; chair.userData.kind = "chair"; chair.position.set(x, 0, z + 1.45); root.add(chair);
+    box(chair, "seat", [1.04, .095, .96], [0, .56, 0], lightWood, .055);
+    for (const dx of [-.42, .42]) for (const dz of [-.38, .38]) {
       cylinder(chair, "chair-leg", .03, .53, [dx, .265, dz], steel);
       cylinder(chair, "chair-foot", .035, .06, [dx, .03, dz], rubber);
     }
-    for (const dx of [-.255, .255]) cylinder(chair, "back-post", .029, .6, [dx, .84, .245], steel);
-    box(chair, "backrest", [.73, .3, .07], [0, 1.01, .27], lightWood, .04);
+    for (const dx of [-.42, .42]) cylinder(chair, "back-post", .029, .6, [dx, .84, .44], steel);
+    box(chair, "backrest", [1.08, .3, .07], [0, 1.01, .47], lightWood, .04);
     box(chair, "chair-crossbar", [.51, .04, .04], [0, .25, .23], steel, .01);
   }
   // A small clock is attached to the front wall, separate from all required furniture.
@@ -147,8 +153,10 @@ export function createClassroom() {
   const rim = cylinder(clock, "clock-rim", .3, .09, [0, 0, 0], wood); rim.rotation.x = Math.PI / 2;
   const face = cylinder(clock, "clock-face", .265, .015, [0, 0, .055], paper); face.rotation.x = Math.PI / 2;
   for (let i = 0; i < 12; i++) { const angle = i * Math.PI / 6; box(clock, "clock-tick", [.014, .035, .01], [Math.sin(angle) * .224, Math.cos(angle) * .224, .07], steel, .003).rotation.z = -angle; }
-  box(clock, "minute-hand", [.014, .19, .01], [.065, .05, .085], rubber, .003).rotation.z = -.91;
-  box(clock, "hour-hand", [.013, .13, .01], [-.04, .035, .088], rubber, .003).rotation.z = .88;
+  const minuteHand = new Group(); minuteHand.name = "minute-hand"; minuteHand.position.z = .085; clock.add(minuteHand);
+  const hourHand = new Group(); hourHand.name = "hour-hand"; hourHand.position.z = .088; clock.add(hourHand);
+  box(minuteHand, "minute-hand-needle", [.014, .19, .01], [0, .075, 0], rubber, .003);
+  box(hourHand, "hour-hand-needle", [.018, .13, .01], [0, .045, 0], rubber, .003);
   const pin = new Mesh(new SphereGeometry(.022, 12, 8), woodEdge); pin.position.z = .097; clock.add(pin);
   root.updateMatrixWorld(true);
   return { root, walls: [{ root: wallX, axis: "x" as const }, { root: wallZ, axis: "z" as const }] };

@@ -4,10 +4,8 @@ import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js
 export const DEFAULT_ROOM_POSITION = new Vector3(19, 21, 33);
 export const DEFAULT_ROOM_TARGET = new Vector3(7.5, .8, 0);
 
-/** Mode changes flush damping and captured gestures, preserving the play camera. */
+/** Always orbit; focusing or resetting flushes damping and captured gestures. */
 export function createRoomView(camera: OrthographicCamera, controls: OrbitControls, canvas: HTMLCanvasElement) {
-  let inspecting = false;
-  let previous = { position: camera.position.clone(), target: controls.target.clone(), zoom: camera.zoom };
   const pointers = new Set<number>();
   const down = (event: PointerEvent) => pointers.add(event.pointerId);
   const up = (event: PointerEvent) => pointers.delete(event.pointerId);
@@ -24,39 +22,20 @@ export function createRoomView(camera: OrthographicCamera, controls: OrbitContro
     controls.enableDamping = damping;
     controls.enabled = true;
   }
-  function configure(active: boolean) {
-    controls.enableRotate = active;
-    controls.enablePan = !active;
-    controls.mouseButtons.LEFT = active ? MOUSE.ROTATE : MOUSE.PAN;
-    controls.mouseButtons.RIGHT = active ? MOUSE.ROTATE : MOUSE.PAN;
-    controls.touches.ONE = active ? TOUCH.ROTATE : TOUCH.PAN;
-    // Disabling pan makes two-finger gestures zoom only in inspection mode.
-    controls.touches.TWO = TOUCH.DOLLY_PAN;
-    controls.rotateSpeed = .65;
-    controls.minPolarAngle = active ? MathUtils.degToRad(15) : 0;
-    controls.maxPolarAngle = active ? MathUtils.degToRad(70) : Math.PI;
-    controls.minAzimuthAngle = -Infinity;
-    controls.maxAzimuthAngle = Infinity;
-    canvas.style.cursor = active ? "grab" : "";
-  }
-  configure(false);
+  controls.enableRotate = true;
+  controls.enablePan = false;
+  controls.mouseButtons.LEFT = MOUSE.ROTATE;
+  controls.mouseButtons.RIGHT = MOUSE.ROTATE;
+  controls.touches.ONE = TOUCH.ROTATE;
+  // With pan disabled, a two-finger gesture only changes zoom.
+  controls.touches.TWO = TOUCH.DOLLY_PAN;
+  controls.rotateSpeed = .65;
+  controls.minPolarAngle = MathUtils.degToRad(15);
+  controls.maxPolarAngle = MathUtils.degToRad(70);
+  controls.minAzimuthAngle = -Infinity;
+  controls.maxAzimuthAngle = Infinity;
+  canvas.style.cursor = "grab";
   return {
-    setInspect(active: boolean) {
-      if (active === inspecting) return;
-      settle();
-      if (active) previous = { position: camera.position.clone(), target: controls.target.clone(), zoom: camera.zoom };
-      configure(active);
-      if (active) {
-        // Orbit around the currently focused room.
-      } else {
-        camera.position.copy(previous.position);
-        camera.zoom = previous.zoom;
-        controls.target.copy(previous.target);
-      }
-      inspecting = active;
-      camera.updateProjectionMatrix();
-      controls.update();
-    },
     focus(area: "all" | "bedroom" | "classroom") {
       settle();
       const target = area === "all" ? DEFAULT_ROOM_TARGET : new Vector3(area === "bedroom" ? 0 : 16, .8, 0);
@@ -68,8 +47,6 @@ export function createRoomView(camera: OrthographicCamera, controls: OrbitContro
     },
     reset() {
       settle();
-      inspecting = false;
-      configure(false);
       camera.position.copy(DEFAULT_ROOM_POSITION);
       camera.zoom = 1;
       controls.target.copy(DEFAULT_ROOM_TARGET);
@@ -104,7 +81,7 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
   });
   const direction = new Vector3();
   return {
-    update(camera: OrthographicCamera, enabled: boolean) {
+    update(camera: OrthographicCamera) {
       camera.getWorldDirection(direction).negate();
       // Orthographic rays are parallel: wall visibility depends on viewing
       // direction, never camera position or which room is currently focused.
@@ -113,12 +90,10 @@ export function createWallCutaway(walls: { root: Object3D; axis: "x" | "z"; side
       for (const group of groups) {
         const coordinate = direction[group.axis];
         // Fade opposing walls together only near an edge-on viewing angle.
-        // At the default angle this produces the same two walls in both modes.
+        // The initial angle shows only the original two walls.
         const blendRange = Math.sin(MathUtils.degToRad(5));
         const blend = MathUtils.smoothstep(coordinate, -blendRange, blendRange);
-        const targetOpacity = enabled
-          ? (group.side === -1 ? blend : 1 - blend)
-          : (group.side === -1 ? 1 : 0);
+        const targetOpacity = group.side === -1 ? blend : 1 - blend;
         group.opacity = targetOpacity;
         const opacity = targetOpacity;
         group.root.visible = opacity > .005;

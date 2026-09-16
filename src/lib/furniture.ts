@@ -17,6 +17,7 @@ import {
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 import { placementProblem, type FurnitureFootprint, type FurnitureLayout, type PlacedFurniture } from "./furniture-layout";
+import { createWindowView } from "./window-view";
 
 export type FurnitureItem = PlacedFurniture & { group: Group; label: string };
 
@@ -139,13 +140,11 @@ function fabricTexture(kind: "gingham" | "duvet" | "curtain") {
 function createWindow() {
   const window = new Group();
   // Model the window in its local XY plane, then face it into the room.
-  window.position.set(-5.86, 1.9, 1.95);
+  window.position.set(-6, 1.9, 1.95);
   window.rotation.y = Math.PI / 2;
   const wood = material("#efc790");
   const cream = material("#fff2d6");
-  const glass = new MeshStandardMaterial({ color: "#fffcec", emissive: "#fff1cd", emissiveIntensity: 0.5, roughness: 0.4 });
-  rounded(window, [2.6, 2.02, 0.06], [0, 0, 0], wood);
-  rounded(window, [2.34, 1.78, 0.065], [0, 0, 0.065], glass, 0.008);
+  window.add(createWindowView(2.34, 1.78));
   for (const x of [-1.21, 1.21]) rounded(window, [0.1, 1.94, 0.14], [x, 0, 0.13], cream, 0.015);
   for (const y of [-0.93, 0.93]) rounded(window, [2.52, 0.11, 0.15], [0, y, 0.14], cream, 0.015);
   for (const x of [-0.39, 0.39]) rounded(window, [0.05, 1.78, 0.10], [x, 0, 0.14], wood, 0.008);
@@ -190,83 +189,34 @@ function createWindow() {
   return window;
 }
 
-function createPlant() {
-  const plant = new Group();
-  const pot = material("#efa767");
-  cylinder(plant, 0.16, 0.115, 0.22, [0, 0.11, 0], pot);
-  cylinder(plant, 0.17, 0.17, 0.045, [0, 0.22, 0], pot);
-  const leaves = material("#82b960");
-  for (let i = 0; i < 7; i++) {
-    const angle = (i / 7) * Math.PI * 2;
-    const leaf = ellipsoid(plant, [0.045, 0.24, 0.06], [Math.cos(angle) * 0.075, 0.40, Math.sin(angle) * 0.075], leaves);
-    leaf.rotation.z = -Math.cos(angle) * 0.45;
-    leaf.rotation.x = Math.sin(angle) * 0.45;
-  }
-  return plant;
-}
-
-function createBed() {
-  const bed = new Group();
-  bed.position.set(-4.37, 0, -3.42);
-  const wood = material("#e6bc85");
-  const paleWood = material("#f3d5a5");
-  const darkerWood = material("#cca16d");
-  const cream = material("#fff0d2");
+function createBunk(x: number) {
+  const bed = new Group(); bed.position.set(x, 0, -3.75);
+  const wood = material("#e6bc85"), cream = material("#fff0d2");
   const duvet = new MeshStandardMaterial({ map: fabricTexture("duvet"), roughness: 1 });
-  for (const x of [-1.1, 1.1]) {
-    for (const z of [-1.65, 1.65]) {
-      rounded(bed, [0.14, 2.94, 0.14], [x, 1.47, z], wood, 0.045);
-      ellipsoid(bed, [0.081, 0.045, 0.081], [x, 2.945, z], paleWood);
-    }
+  for (const dx of [-1.05, 1.05]) for (const z of [-1.65, 1.65]) rounded(bed,[.12,3.2,.12],[dx,1.6,z],wood);
+  for(const [level,y] of [.55,2.12].entries()) {
+    rounded(bed,[2.16,.14,3.4],[0,y-.14,0],wood);
+    const mattress=rounded(bed,[1.98,.18,3.18],[0,y-.02,0],cream,.08);
+    mattress.name=`mattress-${level}`;
+    rounded(bed,[1.94,.08,2.4],[0,y+.11,.3],duvet,.04);
+    rounded(bed,[.9,.15,.48],[0,y+.13,-1.18],cream,.05);
+    for(const z of [-1.65,1.65]) rounded(bed,[2.15,.3,.1],[0,y+.3,z],wood);
+    if(level===1){rounded(bed,[.08,.12,3.2],[-1.03,y+.45,0],wood);rounded(bed,[.08,.12,2.3],[1.03,y+.45,-.35],wood);}
   }
-  rounded(bed, [2.25, 0.18, 3.40], [0, 2.16, 0], wood, 0.035);
-  rounded(bed, [2.06, 0.21, 3.21], [0, 2.33, 0], cream, 0.10);
-  rounded(bed, [2.04, 0.17, 2.72], [0, 2.45, 0.235], duvet, 0.075);
-  rounded(bed, [1.15, 0.22, 0.47], [0, 2.49, -1.18], duvet, 0.10);
-  // Low rails leave the turquoise bedding visible from the room.
-  for (const x of [-1.1, 1.1]) {
-    rounded(bed, [0.09, 0.10, 3.33], [x, 2.78, 0], paleWood, 0.025);
-    for (const z of [-1.18, -0.6, 0, 0.6, 1.18]) rounded(bed, [0.055, 0.35, 0.06], [x, 2.60, z], wood, 0.015);
-  }
-  for (const z of [-1.65, 1.65]) {
-    rounded(bed, [2.15, 0.10, 0.09], [0, 2.78, z], paleWood, 0.025);
-    for (const x of [-0.62, 0, 0.62]) rounded(bed, [0.06, 0.35, 0.055], [x, 2.60, z], wood, 0.015);
-  }
-  // Built-in desk and drawers beneath the loft.
-  rounded(bed, [1.93, 0.13, 3.05], [0.02, 1.03, 0], paleWood, 0.045);
-  rounded(bed, [1.80, 0.82, 0.66], [-0.01, 0.48, -1.15], wood, 0.055);
-  for (const y of [0.30, 0.64]) {
-    rounded(bed, [0.04, 0.28, 0.55], [0.91, y, -1.15], paleWood, 0.025);
-    rounded(bed, [0.055, 0.045, 0.19], [0.955, y + 0.025, -1.15], darkerWood, 0.018);
-  }
-  rounded(bed, [1.74, 0.07, 0.75], [-0.08, 0.47, 1.20], paleWood);
-  // The ladder leans subtly against the foot of the bed.
-  for (const z of [0.98, 1.56]) rod(bed, [1.45, 0.08, z], [1.10, 2.66, z], 0.052, wood);
-  for (let i = 0; i < 6; i++) {
-    const y = 0.32 + i * 0.39;
-    const x = 1.45 - (y / 2.66) * 0.35;
-    rod(bed, [x, y, 0.98], [x, y, 1.56], 0.043, paleWood);
-  }
-  // A small open laptop makes the under-bed surface clearly read as a desk.
-  const laptop = new Group();
-  laptop.position.set(0.24, 1.115, -0.26);
-  const lavender = material("#afa8c7", 0.55);
-  rounded(laptop, [0.49, 0.035, 0.72], [0, 0, 0], lavender, 0.023);
-  const screen = rounded(laptop, [0.04, 0.49, 0.72], [-0.245, 0.235, 0], lavender, 0.025);
-  screen.rotation.z = -0.12;
-  const display = new MeshStandardMaterial({ color: "#b7dcdd", emissive: "#83b8c4", emissiveIntensity: 0.1, roughness: 0.65 });
-  const panel = rounded(laptop, [0.016, 0.40, 0.61], [-0.203, 0.24, 0], display, 0.008);
-  panel.rotation.z = -0.12;
-  rounded(laptop, [0.27, 0.01, 0.54], [0.04, 0.023, 0], material("#d4cedd"), 0.008);
-  bed.add(laptop);
-  const plant = createPlant();
-  plant.position.set(-0.29, 1.10, -1.18);
-  bed.add(plant);
-  for (let i = 0; i < 4; i++) {
-    const book = rounded(bed, [0.40, 0.07, 0.58], [0.19, 1.125 + i * 0.074, 0.72], material(["#edba7c", "#91c7be", "#f6ddaf", "#d9aaac"][i]), 0.01);
-    book.rotation.y = (i % 2 ? 1 : -1) * 0.06;
-  }
+  for(const z of [.8,1.4]) rod(bed,[1.22,.06,z],[1.08,2.65,z],.04,wood);
+  for(let i=0;i<6;i++)rod(bed,[1.2-i*.02,.3+i*.4,.8],[1.2-i*.02,.3+i*.4,1.4],.035,wood);
   return bed;
+}
+function createLongDesk() {
+  const desk=new Group();desk.position.set(0,0,2.3);
+  const wood=material("#e6bc85"), cream=material("#fff0d2");
+  rounded(desk,[9.8,.14,1.25],[0,1.13,0],wood,.06);
+  for(const x of [-4.55,0,4.55])for(const z of [-.43,.43])rounded(desk,[.12,1.08,.12],[x,.54,z],wood);
+  for(const x of [-3.6,-1.2,1.2,3.6]) {
+    rounded(desk,[.55,.04,.43],[x,1.225,-.12],cream);
+    rounded(desk,[.32,.025,.035],[x+.2,1.25,.2],material("#84a997"));
+  }
+  return desk;
 }
 
 function createStool(x: number, z: number) {
@@ -279,49 +229,6 @@ function createStool(x: number, z: number) {
   ellipsoid(stool, [0.45, 0.105, 0.45], [0, 0.60, 0], cushion);
   cylinder(stool, 0.446, 0.446, 0.025, [0, 0.55, 0], material("#efbf4a"));
   return stool;
-}
-
-function createTable() {
-  const table = new Group();
-  table.position.set(-2, 0, 1.1);
-  const wood = material("#e2b77c");
-  for (const x of [-0.49, 0.49]) {
-    for (const z of [-0.49, 0.49]) rod(table, [x * 1.15, 0.05, z * 1.15], [x * 0.87, 1.12, z * 0.87], 0.065, wood);
-  }
-  cylinder(table, 0.98, 0.98, 0.09, [0, 1.11, 0], wood, 64);
-  const vertices: number[] = [];
-  const uv: number[] = [];
-  const indices: number[] = [];
-  const segments = 96;
-  const radii = [0, 0.55, 0.96, 1.05, 1.075];
-  for (let ring = 0; ring < radii.length; ring++) {
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      const folds = Math.sin(angle * 12);
-      const r = radii[ring] + (ring > 2 ? folds * 0.016 : 0);
-      const y = ring === 4 ? 0.91 + Math.cos(angle * 12) * 0.055 : ring === 3 ? 1.11 : 1.17;
-      vertices.push(Math.cos(angle) * r, y, Math.sin(angle) * r);
-      uv.push(Math.cos(angle) * r * 0.48 + 0.5, Math.sin(angle) * r * 0.48 + 0.5);
-      if (ring < radii.length - 1 && i < segments) {
-        const a = ring * (segments + 1) + i;
-        indices.push(a, a + segments + 1, a + 1, a + 1, a + segments + 1, a + segments + 2);
-      }
-    }
-  }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
-  geometry.setAttribute("uv", new Float32BufferAttribute(uv, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  const cloth = new Mesh(geometry, new MeshStandardMaterial({ map: fabricTexture("gingham"), roughness: 1, side: DoubleSide }));
-  cloth.castShadow = cloth.receiveShadow = true;
-  table.add(cloth);
-  // A tiny cream plate and pudding echo the warm, toy-like reference scene.
-  cylinder(table, 0.27, 0.22, 0.035, [0, 1.195, 0], material("#fff0d4"));
-  cylinder(table, 0.10, 0.16, 0.17, [0, 1.29, 0], material("#eabe78"));
-  cylinder(table, 0.105, 0.105, 0.025, [0, 1.385, 0], material("#c88454"));
-  ellipsoid(table, [0.04, 0.055, 0.04], [0, 1.43, 0], material("#e79387"));
-  return table;
 }
 
 export function createFurniture(layout: FurnitureLayout = {}) {
@@ -343,10 +250,10 @@ export function createFurniture(layout: FurnitureLayout = {}) {
   }
   const window = createWindow();
   root.add(window);
-  add("bed", "高架床", createBed());
-  add("table", "圆桌", createTable(), true);
-  add("stool-front", "小圆凳", createStool(-0.35, 1.5), true);
-  add("stool-back", "小圆凳", createStool(-2.07, -3.13), true);
+  add("bunk-left", "双层床", createBunk(-3.5));
+  add("bunk-right", "双层床", createBunk(2.8));
+  add("long-desk", "四人长书桌", createLongDesk());
+  [-3.6,-1.2,1.2,3.6].forEach((x,i)=>add(`stool-${i+1}`, "小圆凳", createStool(x,4.1), true));
   // Apply a saved layout together, so swapping two items remains valid on reload.
   const restored = items.map((item) => ({ ...item, position: layout[item.id] ?? item.position }));
   if (restored.every((item) => !placementProblem(item, item.position, restored))) {

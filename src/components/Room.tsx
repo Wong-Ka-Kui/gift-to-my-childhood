@@ -1,13 +1,10 @@
 import { useEffect, useRef } from "react";
 import {
-  AmbientLight,
   ACESFilmicToneMapping,
   Box3,
-  DirectionalLight,
   Group,
-  HemisphereLight,
   Mesh,
-  MathUtils,
+  Plane,
   OrthographicCamera,
   PCFSoftShadowMap,
   Raycaster,
@@ -17,29 +14,32 @@ import {
   Vector3,
   WebGLRenderer,
   SRGBColorSpace,
+  type Material,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { disposeObject, loadModel } from "../lib/model";
-import { createWander, resumeWander, stepWander, type WanderState } from "../lib/wander";
+import { createWander, resumeWander, type WanderState } from "../lib/wander";
 import { MAX_PETS, type PetRecord } from "../lib/pets";
-import { PET_GAP } from "../lib/pet-placement";
-import { createRoomShell, createBackdrop } from "../lib/room-shell";
+import { AREA, scheduledArea, requiredRoutine, requestBed, worldX, obstaclesFor, spawnPoint, freePoint, requestSeat, standUp, cancelSeat, stepLife, type PetLife, type LifeWorld, type Seat, type Solid } from "../lib/pet-life";
+import { getGameTime } from "../lib/game-time";
+import { createRoomShell } from "../lib/room-shell";
 import { createFurniture, type FurnitureItem } from "../lib/furniture";
 import { createFurnitureEditor } from "../lib/furniture-editor";
-import type { FurnitureLayout } from "../lib/furniture-layout";
+import { furnitureObstacle, type FurnitureLayout } from "../lib/furniture-layout";
 import { CARE_TICK_MS, CLEANABLE_RADIUS, type CareTick, type CleanableItem } from "../lib/home-items";
+import { createDayNight } from "../lib/day-night";
 import { isWorldVisible } from "../lib/visibility";
 import { createCleanableModel } from "../lib/cleanable-model";
 import { capturePetPortrait } from "../lib/pet-portrait";
 import { createRoomView, createWallCutaway, DEFAULT_ROOM_POSITION, DEFAULT_ROOM_TARGET } from "../lib/room-view";
 import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 import { createClassroom } from "../classroom/model";
-import { findClassroomSpot } from "../classroom/campus";
+
 import type { WanderObstacle } from "../lib/wander";
 const CLASSROOM_OFFSET = 16;
 const CLASSROOM_SCALE = 1.25;
 
-type PetRuntime = {
+type PetRuntime = PetLife & {
   id: string;
   name: string;
   mover: Group;
@@ -49,6 +49,9 @@ type PetRuntime = {
   label: HTMLDivElement;
   walking: boolean;
   manualHeading: number | null;
+  materials: { material: Material; opacity: number; transparent: boolean; depthWrite: boolean }[];
+  lastOpacity: number;
+  landing: number;
 };
 type Runtime = {
   scene: Scene;
@@ -63,6 +66,7 @@ type Runtime = {
   furniture: FurnitureItem[];
   classroom: Group;
   classroomObstacles: WanderObstacle[];
+  life: LifeWorld;
 };
 
 function disposePet(pet: PetRuntime) {
@@ -72,27 +76,29 @@ function disposePet(pet: PetRuntime) {
   disposeObject(pet.mover);
 }
 
-function petObstacles(current: Runtime, radius: number) {
-  return [...current.classroomObstacles.map(o => ({ minX: o.minX-radius-.12, maxX: o.maxX+radius+.12, minZ: o.minZ-radius-.12, maxZ: o.maxZ+radius+.12 })),
-    { minX: -10, maxX: 10, minZ: 4-radius-.22, maxZ: 10 },
-    { minX: -10, maxX: 10, minZ: -10, maxZ: -4+radius+.22 }, ...Array.from(current.cleanables.values(), ({ item }) => ({
-    minX: item.x - CLASSROOM_OFFSET - CLEANABLE_RADIUS - radius - .1, maxX: item.x - CLASSROOM_OFFSET + CLEANABLE_RADIUS + radius + .1,
-    minZ: item.z - CLEANABLE_RADIUS - radius - .1, maxZ: item.z + CLEANABLE_RADIUS + radius + .1,
-  }))];
+function petObstacles(current: Runtime, pet: PetRuntime) {
+  return obstaclesFor(current.life, pet.area, pet.radius);
 }
-
 function updateNeighbors(pet: PetRuntime, current: Runtime) {
-  pet.wander.neighbors = Array.from(current.pets.values())
-    .filter((other) => other !== pet)
-    .map((other) => ({ x: other.wander.x, z: other.wander.z, radius: pet.radius + other.radius + PET_GAP }));
+  pet.wander.neighbors = Array.from(current.pets.values()).filter(other=>other!==pet&&other.area===pet.area)
+    .map(other=>({x:other.wander.x,z:other.wander.z,radius:pet.radius+other.radius+.18}));
+}
+function petY(pet: PetRuntime) {
+  if(!pet.seat)return 0;
+  if(pet.seat.kind==="bed")return pet.seat.y+.38;
+  const t=pet.sitBlend;
+  if(pet.seatPhase>=0&&pet.approach&&Math.hypot(pet.approach.x-pet.seat.x,pet.approach.z-pet.seat.z)<.001)
+    return pet.seat.y+.05-pet.motion.seatHeight*t;
+  // Lift above the cushion while entering/leaving it, then settle onto it.
+  return Math.max(0,pet.seat.y-pet.motion.seatHeight+.05)*t + Math.sin(Math.PI*t)*.32;
 }
 
 export default function Room({
   pets,
   initialLayout,
+  timeOrigin,
   cleanables,
   paused,
-  inspecting,
   viewReset,
   focusArea,
   onCareTick,
@@ -106,9 +112,9 @@ export default function Room({
 }: {
   pets: readonly PetRecord[];
   initialLayout: FurnitureLayout;
+  timeOrigin: number;
   cleanables: readonly CleanableItem[];
   paused: boolean;
-  inspecting: boolean;
   viewReset: number;
   focusArea: "all" | "bedroom" | "classroom";
   onCareTick: (tick: CareTick) => void;
@@ -124,8 +130,8 @@ export default function Room({
   const runtime = useRef<Runtime | null>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const startingLayout = useRef(initialLayout);
-  const callbacks = useRef({ paused, inspecting, onCareTick, onClean, onPortrait });
-  callbacks.current = { paused, inspecting, onCareTick, onClean, onPortrait };
+  const callbacks = useRef({ paused, onCareTick, onClean, onPortrait });
+  callbacks.current = { paused, onCareTick, onClean, onPortrait };
 
   useEffect(() => {
     const container = host.current!;
@@ -146,8 +152,6 @@ export default function Room({
     renderer.domElement.setAttribute("aria-label", "宠物房间");
     container.appendChild(renderer.domElement);
     const scene = new Scene();
-    const backdrop = createBackdrop();
-    scene.background = backdrop;
     const camera = new OrthographicCamera(-8, 8, 8, -8, 0.1, 100);
     // View predominantly along one wall, placing the rear corner to the right.
     camera.position.copy(DEFAULT_ROOM_POSITION);
@@ -161,33 +165,18 @@ export default function Room({
     controls.target.copy(DEFAULT_ROOM_TARGET);
     controls.update();
     const view = createRoomView(camera, controls, renderer.domElement);
-    scene.add(new AmbientLight(0xffffff, 0.85));
-    scene.add(new HemisphereLight("#f4fcff", "#fff0d5", 0.95));
-    const sun = new DirectionalLight(0xfff7e8, 1.45);
-    sun.position.set(6, 16, 10);
-    sun.target.position.set(6, 0, 0);
-    scene.add(sun.target);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -17;
-    sun.shadow.camera.right = 17;
-    sun.shadow.camera.top = 14;
-    sun.shadow.camera.bottom = -14;
-    sun.shadow.normalBias = 0.025;
-    sun.shadow.bias = -0.0001;
-    sun.shadow.radius = 5;
-    scene.add(sun);
     const room = createRoomShell();
     const furniture = createFurniture(startingLayout.current);
     room.add(furniture.root);
     scene.add(room);
     const classroom = createClassroom();
     classroom.root.scale.setScalar(CLASSROOM_SCALE);
-    const classroomObstacles: WanderObstacle[] = [];
+    classroom.root.updateMatrixWorld(true);
+    const classroomObstacles: Solid[] = [];
     for (const item of classroom.root.children) {
       if (!["desk", "chair", "lectern"].includes(item.userData.kind) && item.name !== "teaching-platform") continue;
       const b = new Box3().setFromObject(item);
-      classroomObstacles.push({ minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z });
+      classroomObstacles.push({ id: item.name, minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z });
     }
     classroom.root.position.x = CLASSROOM_OFFSET;
     scene.add(classroom.root);
@@ -203,6 +192,7 @@ export default function Room({
       { root: classroom.root.getObjectByName("classroom-door-wall")!, axis: "x", side: 1, center: CLASSROOM_OFFSET },
       { root: classroom.root.getObjectByName("classroom-rear-window-wall")!, axis: "z", side: 1, center: 0 },
     ]);
+    const dayNight = createDayNight(scene, [room, classroom.root], timeOrigin);
     const labelPosition = new Vector3();
     const itemPosition = new Vector3();
     const itemRay = new Raycaster();
@@ -211,7 +201,8 @@ export default function Room({
     const occlusionHit = new Vector3();
     let lastOcclusionCheck = -Infinity;
     const render = () => {
-      cutaway.update(camera, callbacks.current.inspecting);
+      dayNight.update();
+      cutaway.update(camera);
       renderer.render(scene, camera);
       const checkOcclusion = performance.now() - lastOcclusionCheck > 180;
       if (checkOcclusion) lastOcclusionCheck = performance.now();
@@ -227,40 +218,63 @@ export default function Room({
           // Pet models can contain millions of triangles. Match their interaction
           // spheres instead of raycasting all those triangles for each floor item.
           if (!occluded) for (const pet of current.pets.values()) {
-            occlusionSphere.center.set(pet.wander.x + CLASSROOM_OFFSET, pet.motion.height * .5, pet.wander.z);
+            occlusionSphere.center.set(worldX(pet), petY(pet) + pet.motion.height * .5, pet.wander.z);
             occlusionSphere.radius = pet.motion.height * .42;
             if (itemRay.ray.intersectSphere(occlusionSphere, occlusionHit) && itemRay.ray.origin.distanceTo(occlusionHit) < itemRay.far) { occluded = true; break; }
           }
           button.dataset.occluded = String(occluded);
         }
         button.hidden = hidden || button.dataset.occluded === "true";
-        button.disabled = callbacks.current.paused || callbacks.current.inspecting || furnitureEditor.active || button.dataset.busy === "true";
+        button.disabled = callbacks.current.paused || furnitureEditor.active || button.dataset.busy === "true";
         button.style.transform = `translate(${(itemPosition.x + 1) / 2 * container.clientWidth}px, ${(1 - itemPosition.y) / 2 * container.clientHeight}px) translate(-50%, -50%)`;
       }
       for (const pet of current.pets.values()) {
           const label = pet.label;
-          labelPosition.set(pet.wander.x + CLASSROOM_OFFSET, pet.motion.height + 0.15, pet.wander.z).project(camera);
+          labelPosition.set(worldX(pet), petY(pet) + (pet.sleepBlend ? .55 : pet.motion.height) + 0.15, pet.wander.z).project(camera);
+          label.style.opacity=String(pet.opacity);
           label.hidden = Math.abs(labelPosition.x) > 1 || Math.abs(labelPosition.y) > 1 || Math.abs(labelPosition.z) > 1;
           const x = (labelPosition.x + 1) / 2 * container.clientWidth;
           const y = (1 - labelPosition.y) / 2 * container.clientHeight;
           label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
       }
     };
-    const current: Runtime = { scene, renderer, cleanables: new Map(), camera, view, render, pets: new Map(), loading: new Set(), disposed: false, furniture: furniture.items, classroom: classroom.root, classroomObstacles };
+    const petMap = new Map<string, PetRuntime>();
+    const life: LifeWorld = {
+      pets: petMap, timeOrigin,
+      solids(area) {
+        const solid: Solid[] = area === "bedroom" ? furniture.items.map(item=>({...furnitureObstacle(item),id:item.id})) : classroomObstacles;
+        return [...solid, ...Array.from(current.cleanables.values(),({item})=>({id:item.id,minX:item.x-AREA[area].offset-.28,maxX:item.x-AREA[area].offset+.28,minZ:item.z-.28,maxZ:item.z+.28}))];
+      },
+      seats() {
+        const seats: Seat[] = furniture.items.filter(item=>item.id.startsWith("stool")).map(item=>({id:item.id,area:"bedroom",x:item.position.x,z:item.position.z,y:.705,yaw:Math.PI,width:.9,depth:.9}));
+        classroom.root.children.filter(item=>item.userData.kind==="chair").forEach(item=>seats.push({id:item.name,area:"classroom",x:item.position.x*CLASSROOM_SCALE,z:item.position.z*CLASSROOM_SCALE,y:.6075*CLASSROOM_SCALE,yaw:Math.PI,width:1.04*CLASSROOM_SCALE,depth:.96*CLASSROOM_SCALE}));
+        for(const item of furniture.items.filter(item=>item.id.startsWith("bunk")))for(const [level,y] of [.76,2.33].entries())seats.push({id:`${item.id}-${level}`,furnitureId:item.id,kind:"bed",area:"bedroom",x:item.position.x,z:item.position.z,y,yaw:0,width:1.98,depth:3.18});
+        return seats;
+      },
+    };
+    const current: Runtime = { scene, renderer, cleanables: new Map(), camera, view, render, pets: petMap, loading: new Set(), disposed: false, furniture: furniture.items, classroom: classroom.root, classroomObstacles, life };
     runtime.current = current;
 
-    // Dragging the pet rotates its horizontal facing. Blank-space drags remain
-    // available to OrbitControls for camera panning.
+    // Drag pets onto the floor or beside a seat; Shift-drag adjusts facing.
     const raycaster = new Raycaster();
     const pointer = new Vector2();
     const hitBounds = new Sphere();
     const intersection = new Vector3();
-    let gesture: { pet: PetRuntime; pointer: number; startX: number; startY: number; lastX: number; dragging: boolean } | null = null;
+    let gesture: { pet: PetRuntime; pointer: number; startX: number; startY: number; lastX: number; dragging: boolean; rotate: boolean; drop: Vector3 | null; offset: Vector3 } | null = null;
     let lastTap: { id: string; time: number; x: number; y: number } | null = null;
     let lastToggle: { id: string; time: number } | null = null;
     let lastDragTime = -Infinity;
     let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
     const canvas = renderer.domElement;
+    const floorPlane = new Plane(new Vector3(0,1,0),0);
+    const floorPoint = (event: MouseEvent) => {
+      const rect=canvas.getBoundingClientRect();
+      pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+      raycaster.setFromCamera(pointer,camera);
+      return raycaster.ray.intersectPlane(floorPlane,new Vector3());
+    };
+    const say = (message: string) => { if(feedback.current)feedback.current.textContent=message;clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>{if(feedback.current)feedback.current.textContent="";},2200); };
+
     const hitPet = (event: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -269,7 +283,7 @@ export default function Room({
       let nearest: PetRuntime | null = null;
       let nearestDistance = Infinity;
       for (const pet of current.pets.values()) {
-        hitBounds.center.set(pet.wander.x + CLASSROOM_OFFSET, pet.motion.height * 0.5, pet.wander.z);
+        hitBounds.center.set(worldX(pet), petY(pet) + (pet.sleepBlend ? .2 : pet.motion.height * 0.5), pet.wander.z);
         hitBounds.radius = pet.motion.height * 0.42;
         if (raycaster.ray.intersectSphere(hitBounds, intersection)) {
           const distance = raycaster.ray.origin.distanceToSquared(intersection);
@@ -280,6 +294,8 @@ export default function Room({
     };
     const toggleWalking = (pet: PetRuntime, time: number) => {
       tickCare();
+      if(requiredRoutine(getGameTime(timeOrigin).minuteOfDay)!=="free"){say("现在是规定作息时间，稍后再一起玩");return;}
+      if(pet.seat){ if(pet.sitBlend>0) standUp(life,pet);else cancelSeat(pet);pet.walking=true;return; }
       pet.walking = !pet.walking;
       pet.manualHeading = null;
       pet.wander.speed = 0;
@@ -293,10 +309,11 @@ export default function Room({
       feedbackTimer = setTimeout(() => { if (feedback.current) feedback.current.textContent = ""; }, 1600);
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (callbacks.current.paused || callbacks.current.inspecting || event.button !== 0 || gesture) return;
+      if (callbacks.current.paused || furnitureEditor.active || event.button !== 0 || gesture) return;
       const pet = hitPet(event);
-      if (!pet) { lastTap = null; return; }
-      gesture = { pet, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, dragging: false };
+      if (!pet || pet.destination || pet.relocation) { lastTap = null; return; }
+      if(requiredRoutine(getGameTime(timeOrigin).minuteOfDay)!=="free"){say("现在是规定作息时间，稍后再一起玩");event.stopPropagation();return;}
+      gesture = { pet, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, dragging: false, rotate: event.shiftKey, drop: null, offset: new Vector3(worldX(pet),0,pet.wander.z).sub(floorPoint(event) ?? new Vector3(worldX(pet),0,pet.wander.z)) };
       controls.enabled = false;
       canvas.setPointerCapture?.(event.pointerId);
       event.stopPropagation();
@@ -313,7 +330,13 @@ export default function Room({
         pet.wander.wait = 1.2;
         pet.wander.speed = 0;
       }
-      if (gesture.dragging) pet.manualHeading! += (event.clientX - gesture.lastX) * 0.015;
+      if (gesture.dragging) {
+        if(gesture.rotate) pet.manualHeading! += (event.clientX - gesture.lastX) * 0.015;
+        else {
+          const point=floorPoint(event)?.add(gesture.offset);
+          if(point){gesture.drop=point;pet.mover.position.set(point.x,.4,point.z);say("拖到凳旁坐下，拖到床垫上睡觉");}
+        }
+      }
       gesture.lastX = event.clientX;
       event.preventDefault();
       event.stopPropagation();
@@ -324,7 +347,26 @@ export default function Room({
       gesture = null;
       controls.enabled = true;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-      if (completed.dragging) { lastDragTime = event.timeStamp; lastTap = null; }
+      if (completed.dragging) {
+        if(!completed.rotate)completed.pet.landing=.4;
+        lastDragTime = event.timeStamp; lastTap = null;
+        if(!completed.rotate && completed.drop && event.type==="pointerup") {
+          const pet=completed.pet, drop=completed.drop;
+          const rect=canvas.getBoundingClientRect();
+          const cushion=life.seats().filter(s=>s.kind!=="bed"&&s.area===pet.area).map(s=>{const v=new Vector3(s.x+AREA[s.area].offset,s.y,s.z).project(camera);return {s,d:Math.hypot(rect.left+(v.x+1)/2*rect.width-event.clientX,rect.top+(1-v.y)/2*rect.height-event.clientY)};}).sort((a,b)=>a.d-b.d)[0];
+          const seat=(cushion&&cushion.d<42?cushion.s:undefined)??life.seats().filter(s=>s.kind!=="bed"&&s.area===pet.area&&Math.hypot(s.x+AREA[s.area].offset-drop.x,s.z-drop.z)<1.6).sort((a,b)=>Math.hypot(a.x+AREA[a.area].offset-drop.x,a.z-drop.z)-Math.hypot(b.x+AREA[b.area].offset-drop.x,b.z-drop.z))[0];
+          const bed=life.seats().filter(s=>s.kind==="bed"&&s.area===pet.area).map(s=>{const v=new Vector3(s.x,s.y,s.z).project(camera);return {s,d:Math.hypot(rect.left+(v.x+1)/2*rect.width-event.clientX,rect.top+(1-v.y)/2*rect.height-event.clientY)};}).sort((a,b)=>a.d-b.d)[0];
+          if(requiredRoutine(getGameTime(timeOrigin).minuteOfDay)!=="free"){say("已到作息时间，奶蛙要遵守作息啦");}
+          else if(bed&&bed.d<60){say(requestBed(life,pet,bed.s)?`${pet.name}准备睡觉`:"这个床位已有伙伴了");}
+          else if(pet.seat?.kind==="bed"){standUp(life,pet);say("奶蛙起床啦");}
+          else if(pet.seat && pet.sitBlend>0){standUp(life,pet);say("先从凳子上起立，再拖动到其他位置");}
+          else if(seat){cancelSeat(pet);say(requestSeat(life,pet,seat,true)?`${pet.name}准备坐下`:"这个座位已占用或被挡住了");}
+          else if(freePoint(life,pet,pet.area,drop.x-AREA[pet.area].offset,drop.z)){
+            cancelSeat(pet);pet.wander.x=drop.x-AREA[pet.area].offset;pet.wander.z=drop.z;pet.wander.targetX=pet.wander.x;pet.wander.targetZ=pet.wander.z;pet.wander.wait=1;pet.manualHeading=null;say(`${pet.name}已放下`);
+          }else say("这里无法放置，已回到原处");
+          pet.manualHeading=null;
+        }
+      }
       else if (event.type === "pointerup") {
         if (lastTap?.id === completed.pet.id && event.timeStamp - lastTap.time < 400 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 24) {
           toggleWalking(completed.pet, event.timeStamp);
@@ -335,7 +377,7 @@ export default function Room({
     };
     const onDoubleClick = (event: MouseEvent) => {
       const pet = hitPet(event);
-      if (callbacks.current.paused || callbacks.current.inspecting || !pet || event.timeStamp - lastDragTime < 400) return;
+      if (callbacks.current.paused || !pet || event.timeStamp - lastDragTime < 400) return;
       // Pointer-up handles mouse double taps and touch. Native dblclick is a
       // fallback, not a second toggle of the same gesture.
       if (!(lastToggle?.id === pet.id && event.timeStamp - lastToggle.time < 100)) toggleWalking(pet, event.timeStamp);
@@ -345,8 +387,8 @@ export default function Room({
     };
     const furnitureEditor = createFurnitureEditor({
       canvas, camera, scene, controls, furniture,
-      getPets: () => Array.from(current.pets.values(), (pet) => ({ x: pet.wander.x + CLASSROOM_OFFSET, z: pet.wander.z, radius: pet.radius, height: pet.motion.height })),
-      canEdit: () => !callbacks.current.paused && !callbacks.current.inspecting && !gesture && !current.loading.size,
+      getPets: () => Array.from(current.pets.values(), (pet) => ({ x: worldX(pet), z: pet.wander.z, radius: pet.radius, height: pet.motion.height + petY(pet) })),
+      canEdit: () => requiredRoutine(getGameTime(timeOrigin).minuteOfDay)==="free" && !callbacks.current.paused && !gesture && !current.loading.size,
       getCleanables: () => Array.from(current.cleanables.values(), ({ item }) => ({ ...item, radius: CLEANABLE_RADIUS })),
       onActive: (active) => {
         lastTap = null;
@@ -355,7 +397,7 @@ export default function Room({
       },
       onCommit: (layout) => {
         for (const pet of current.pets.values()) {
-          pet.wander.obstacles = petObstacles(current, pet.radius);
+          pet.wander.obstacles = petObstacles(current, pet);
           pet.wander.targetX = pet.wander.x;
           pet.wander.targetZ = pet.wander.z;
           pet.wander.speed = 0;
@@ -379,9 +421,9 @@ export default function Room({
       if (!wasVisible || callbacks.current.paused || furnitureEditor.active || current.loading.size) return;
       callbacks.current.onCareTick({
         from, to: now,
-        pets: Array.from(current.pets.values(), (pet) => ({ id: pet.id, x: pet.wander.x + CLASSROOM_OFFSET, z: pet.wander.z, radius: pet.radius, yaw: pet.wander.yaw, active: pet.walking && gesture?.pet !== pet })),
-        obstacles: current.classroomObstacles.map(o => ({...o,minX:o.minX+CLASSROOM_OFFSET,maxX:o.maxX+CLASSROOM_OFFSET})),
-        area: { centerX: CLASSROOM_OFFSET, halfWidth: 5.6, halfDepth: 4.4 },
+        pets: Array.from(current.pets.values(), (pet) => ({ id: pet.id, x: worldX(pet), z: pet.wander.z, radius: pet.radius, yaw: pet.wander.yaw, active: pet.walking && !pet.seat && !pet.destination && gesture?.pet !== pet })),
+        obstacles: life.solids(scheduledArea(getGameTime(timeOrigin).minuteOfDay)).map(o => ({...o,minX:o.minX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset,maxX:o.maxX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset})),
+        area: { centerX: AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset, halfWidth: 5.6, halfDepth: scheduledArea(getGameTime(timeOrigin).minuteOfDay)==="bedroom"?5.4:4.4 },
       });
     };
     const careVisibility = () => { tickCare(); wasVisible = !document.hidden; careTime = Date.now(); };
@@ -395,22 +437,27 @@ export default function Room({
           ? 0
           : Math.min((time - previousTime) / 1000, 0.05);
       previousTime = time;
+      // A drag that spans a schedule boundary must not hold a pet out of class
+      // or bed indefinitely. Release capture and let the routine take over.
+      if(gesture && requiredRoutine(getGameTime(timeOrigin).minuteOfDay)!=="free") {
+        const pointerId=gesture.pointer;gesture=null;controls.enabled=true;lastTap=null;
+        if(canvas.hasPointerCapture(pointerId))canvas.releasePointerCapture(pointerId);
+      }
       if (controls.enabled) controls.update();
       furnitureEditor.update();
       for (const pet of current.pets.values()) {
         const frameDelta = document.hidden ? 0 : delta;
         if (furnitureEditor.active || callbacks.current.paused) { pet.wander.speed = 0; }
-        else if (pet.manualHeading !== null) {
-          const turn = Math.atan2(Math.sin(pet.manualHeading - pet.wander.yaw), Math.cos(pet.manualHeading - pet.wander.yaw));
-          pet.wander.yaw += MathUtils.clamp(turn, -0.85 * frameDelta, 0.85 * frameDelta);
-          if (gesture?.pet !== pet && Math.abs(turn) < 0.015) pet.manualHeading = null;
-        } else if (pet.walking && gesture?.pet !== pet) {
-          updateNeighbors(pet, current);
-          stepWander(pet.wander, frameDelta);
+        else stepLife(life,pet,frameDelta,gesture?.pet===pet);
+        const carried=gesture?.pet===pet&&gesture.dragging&&!gesture.rotate;
+        if(!carried){pet.landing*=Math.exp(-18*frameDelta);if(pet.landing<.001)pet.landing=0;pet.mover.position.set(worldX(pet),petY(pet)+pet.landing,pet.wander.z);}
+        if(gesture?.pet===pet&&gesture.rotate&&pet.manualHeading!==null)pet.wander.yaw=pet.manualHeading;
+        if(pet.lastOpacity!==pet.opacity){
+          for(const original of pet.materials){const m=original.material;const transparent=original.transparent||pet.opacity<1;if(m.transparent!==transparent){m.transparent=transparent;m.needsUpdate=true;}m.opacity=original.opacity*pet.opacity;m.depthWrite=original.depthWrite&&pet.opacity===1;}
+          pet.lastOpacity=pet.opacity;
         }
-        pet.mover.position.set(pet.wander.x, 0, pet.wander.z);
         pet.mover.rotation.y = pet.wander.yaw;
-        pet.motion.update(frameDelta, pet.wander);
+        pet.motion.update(frameDelta,{...pet.wander,carried,sitting:carried?0:pet.sitBlend,sleeping:carried?0:pet.sleepBlend??0});
       }
       render();
     });
@@ -437,6 +484,7 @@ export default function Room({
       for (const entry of current.cleanables.values()) { entry.button.remove(); entry.model.removeFromParent(); disposeObject(entry.model); }
       current.cleanables.clear();
       view.dispose();
+      dayNight.dispose();
       cutaway.dispose();
       furnitureEditor.dispose();
       runtime.current = null;
@@ -449,8 +497,6 @@ export default function Room({
       observer.disconnect();
       disposeObject(room);
       disposeObject(classroom.root);
-      backdrop.dispose();
-      sun.shadow.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       controls.dispose();
@@ -462,11 +508,7 @@ export default function Room({
       canvas.removeEventListener("dblclick", onDoubleClick, true);
       renderer.domElement.remove();
     };
-  }, [onError, onFurnitureEditing, onFurnitureLayout]);
-
-  useEffect(() => {
-    runtime.current?.view.setInspect(inspecting);
-  }, [inspecting]);
+  }, [onError, onFurnitureEditing, onFurnitureLayout, timeOrigin]);
 
   useEffect(() => {
     runtime.current?.view.focus(focusArea);
@@ -502,7 +544,7 @@ export default function Room({
       button.addEventListener("pointerup", () => { press = null; });
       button.addEventListener("pointercancel", () => { press = null; dragged = true; });
       button.addEventListener("click", async (event) => {
-        if ((event.detail > 0 && dragged) || button.disabled || callbacks.current.paused || callbacks.current.inspecting) return;
+        if ((event.detail > 0 && dragged) || button.disabled || callbacks.current.paused) return;
         button.dataset.busy = "true"; button.disabled = true;
         try { await callbacks.current.onClean(item.id); }
         finally { button.dataset.busy = "false"; button.disabled = false; }
@@ -511,7 +553,7 @@ export default function Room({
       current.scene.add(model); host.current!.append(button);
     }
     for (const pet of current.pets.values()) {
-      pet.wander.obstacles = petObstacles(current, pet.radius);
+      pet.wander.obstacles = petObstacles(current, pet);
       pet.wander.targetX = pet.wander.x; pet.wander.targetZ = pet.wander.z; pet.wander.speed = 0;
     }
   }, [cleanables]);
@@ -527,7 +569,7 @@ export default function Room({
     for (const record of pets) {
       if (current.pets.has(record.id) || current.loading.has(record.id)) continue;
       if (current.pets.size + current.loading.size >= MAX_PETS) {
-        onPetError(record.id, "房间最多可以放置 3 只宠物。");
+        onPetError(record.id, "房间最多可以放置 4 只宠物。");
         continue;
       }
       current.loading.add(record.id);
@@ -548,12 +590,7 @@ export default function Room({
           catch { /* A thumbnail failure must not prevent a saved pet from loading. */ }
         }
         const radius = Math.hypot(size.x, size.z) / 2 + motion.clearance;
-        const bound = Math.max(0.1, 5 - radius - .22);
-        const obstacles = petObstacles(current, radius);
-        const others = Array.from(current.pets.values(), (pet) => ({ x: pet.wander.x, z: pet.wander.z, radius: pet.radius }));
-        const spawnObstacles = [...current.classroomObstacles, ...Array.from(current.cleanables.values(), ({item}) => ({minX:item.x-CLASSROOM_OFFSET-.38, maxX:item.x-CLASSROOM_OFFSET+.38, minZ:item.z-.38,maxZ:item.z+.38}))];
-        const spawn = findClassroomSpot(radius, spawnObstacles, others, current.pets.size);
-        if (!spawn) throw new Error("房间暂时没有足够的空位，请稍后重新导入。");
+        const area=scheduledArea(getGameTime(current.life.timeOrigin).minuteOfDay);
         const mover = new Group();
         mover.add(motion.root);
         motion.root.traverse((child) => {
@@ -569,6 +606,7 @@ export default function Room({
         host.current!.appendChild(label);
         const pet: PetRuntime = {
           id: record.id,
+          materials: [], lastOpacity: 1, opacity: 1, landing: 0,
           name: record.profile.name,
           label,
           radius,
@@ -576,18 +614,25 @@ export default function Room({
           manualHeading: null,
           mover,
           motion,
-          wander: createWander(bound, Math.random, obstacles, spawn),
+          area, seat: null, seatPhase:0, sitBlend:0, rest:0, path:[], approach:null, nextSeat:8+Math.random()*15, transfer:0, destination:null,
+          wander: createWander(AREA[area].halfX-radius),
         };
+        const materials=new Set<Material>();
+        motion.root.traverse(child=>{if(child instanceof Mesh)for(const material of Array.isArray(child.material)?child.material:[child.material])materials.add(material);});
+        pet.materials=[...materials].map(material=>({material,opacity:material.opacity,transparent:material.transparent,depthWrite:material.depthWrite}));
+        const spawn=spawnPoint(current.life,pet,area);
+        if(!spawn){ label.remove(); throw new Error("房间暂时没有足够的空位"); }
+        pet.wander=createWander(AREA[area].halfX-radius,Math.random,petObstacles(current,pet),spawn);
         // Preserve the preview's angle relative to the viewer, not the room's axes.
         const towardViewer = current.camera.getWorldDirection(new Vector3()).negate();
         pet.wander.yaw = Math.atan2(towardViewer.x, towardViewer.z) + record.profile.facingYaw;
         pet.wander.wait = 3;
-        mover.position.set(pet.wander.x, 0, pet.wander.z);
+        mover.position.set(worldX(pet), 0, pet.wander.z);
         mover.rotation.y = pet.wander.yaw;
         motion.update(0, pet.wander);
         current.pets.set(record.id, pet);
         current.loading.delete(record.id);
-        current.classroom.add(mover);
+        current.scene.add(mover);
         current.render();
         onReady(record.id);
       })

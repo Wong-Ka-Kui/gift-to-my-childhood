@@ -9,13 +9,12 @@ import { MAX_PETS, type PetRecord } from "./lib/pets";
 import { createHomeCare, type HomeCare, type CareTick } from "./lib/home-items";
 import { loadLocalHome, savePet, saveFurnitureLayout, savePetPortrait, updateHomeCare, type LocalHome } from "./lib/pet-storage";
 import BehaviorDiary from "./components/BehaviorDiary";
+import GameClock from "./components/GameClock";
 
 export default function App() {
   const [initialLayout, setInitialLayout] = useState<FurnitureLayout>({});
-  const [inspecting, setInspecting] = useState(false);
   const [focusArea, setFocusArea] = useState<"all" | "bedroom" | "classroom">("all");
   const [viewReset, setViewReset] = useState(0);
-  const viewToggle = useRef<HTMLButtonElement>(null);
   const [editingFurniture, setEditingFurniture] = useState(false);
   const editingFurnitureRef = useRef(false);
   const guestId = useRef<string | null>(null);
@@ -23,22 +22,13 @@ export default function App() {
     editingFurnitureRef.current = active;
     setEditingFurniture(active);
   }, []);
-  const exitInspection = useCallback(() => {
-    setInspecting(false);
-    viewToggle.current?.focus();
-  }, []);
-  useEffect(() => {
-    if (!inspecting) return;
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); exitInspection(); } };
-    window.addEventListener("keydown", escape);
-    return () => window.removeEventListener("keydown", escape);
-  }, [inspecting, exitInspection]);
   const input = useRef<HTMLInputElement>(null);
   const [pets, setPets] = useState<PetRecord[]>([]);
   const [error, setError] = useState("");
   const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [care, setCare] = useState<HomeCare>(createHomeCare);
+  const [timeOrigin, setTimeOrigin] = useState(Date.now);
   const [rewardMessage, setRewardMessage] = useState("");
   const rewardTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(rewardTimer.current), []);
@@ -86,6 +76,7 @@ export default function App() {
     setLoading(home.pets.length > 0);
     setPets(home.pets);
     setCare(home.care);
+    setTimeOrigin(home.timeOrigin);
     guestId.current = home.guest?.id ?? null;
     setInitialLayout(home.furniture);
     setGuest(home.guest);
@@ -114,7 +105,7 @@ export default function App() {
     return () => { active = false; };
   }, [enterHome, restoreAttempt]);
   function importFiles(files: FileList) {
-    if (!guest || inspecting || editingFurnitureRef.current || restoring || full || pendingAsset || selectedPetId || importBusy.current) return;
+    if (!guest || editingFurnitureRef.current || restoring || full || pendingAsset || selectedPetId || importBusy.current) return;
     try {
       const next = validateFiles(
         Array.from(files, (file) => ({ name: file.name, blob: file })),
@@ -135,7 +126,7 @@ export default function App() {
   if (!guest) return <GuestEntry onEnter={enterHome} />;
   return (
     <main
-      className={`room-app${inspecting ? " is-inspecting" : ""}`}
+      className="room-app"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -143,11 +134,11 @@ export default function App() {
       }}
     >
       <Room
+        timeOrigin={timeOrigin}
         pets={pets}
         initialLayout={initialLayout}
         cleanables={care.items}
         paused={Boolean(pendingAsset || selectedPet)}
-        inspecting={inspecting}
         viewReset={viewReset}
         focusArea={focusArea}
         onCareTick={onCareTick}
@@ -162,22 +153,22 @@ export default function App() {
       <button type="button" className={`diary-tab${diaryOpen ? " is-open" : ""}`} onClick={() => setDiaryOpen((open) => !open)} aria-expanded={diaryOpen} aria-controls="pet-behavior-diary"><span aria-hidden="true">✦</span><b>行为<br />日记</b></button>
       {diaryOpen ? <div id="pet-behavior-diary"><BehaviorDiary pets={pets} onClose={() => setDiaryOpen(false)} /></div> : null}
       <nav className="room-area-switch" aria-label="房间取景">
-        {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} aria-pressed={focusArea === area} disabled={inspecting || editingFurniture || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
+        {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} type="button" aria-pressed={focusArea === area} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
+        <button type="button" className="reset-view-button" disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); }}>回到默认视角</button>
       </nav>
-      <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
+      <div className="room-view-hint">空白处拖动旋转 · 拖宠物到凳旁 / 床上 · Shift 拖宠物转向</div>
+      <div className="room-status">
+        <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
+        <GameClock timeOrigin={timeOrigin} />
+      </div>
       <nav className="pet-rail" aria-label="房间里的宠物">
         <span className="pet-rail-title">伙伴</span>
-        {pets.map((pet) => <button key={pet.id} className="pet-portrait-button" aria-label={`查看${pet.profile.name}的档案`} disabled={inspecting || editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setSelectedPetId(pet.id)}>
+        {pets.map((pet) => <button key={pet.id} className="pet-portrait-button" aria-label={`查看${pet.profile.name}的档案`} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setSelectedPetId(pet.id)}>
           {pet.portrait ? <img src={pet.portrait} alt={`${pet.profile.name}的头像`} width="58" height="58" /> : <span className="portrait-loading" aria-label="头像准备中">•••</span>}
           <span className="pet-rail-name" title={pet.profile.name}>{pet.profile.name}</span>
         </button>)}
         {!pets.length ? <span className="pet-rail-empty">导入宠物<br />迎接伙伴</span> : null}
       </nav>
-      {inspecting ? <div className="view-help" id="view-instructions">
-        <div role="status"><strong>360° 自由查看</strong><span>拖动旋转 · 滚轮 / 双指缩放</span></div>
-        <button type="button" onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); exitInspection(); }}>回到默认视角</button>
-        <button type="button" onClick={exitInspection}>退出查看</button>
-      </div> : null}
       <div className="care-hint">点击便便或纸团清扫 · 每件 +5 金币</div>
       {rewardMessage ? <div className="clean-reward" role="status">{rewardMessage}</div> : null}
       {selectedPet ? <PetProfileCard key={selectedPet.id} asset={selectedPet.asset} initialProfile={selectedPet.profile} readOnly onCancel={() => setSelectedPetId(null)} onError={setError} /> : null}
@@ -200,7 +191,7 @@ export default function App() {
             } catch {
               importBusy.current = false;
               setLoading(false);
-              setError("宠物未能保存，请检查存储空间或其他游戏标签页是否已满 3 只，再重试。模型和填写内容仍在。");
+              setError("宠物未能保存，请检查存储空间或其他游戏标签页是否已满 4 只，再重试。模型和填写内容仍在。");
             }
           }}
         />
@@ -210,7 +201,7 @@ export default function App() {
         className="file-input"
         type="file"
         multiple
-        disabled={inspecting || editingFurniture || restoring || full || loading || Boolean(pendingAsset || selectedPet)}
+        disabled={editingFurniture || restoring || full || loading || Boolean(pendingAsset || selectedPet)}
         accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp"
         aria-label="选择 3D 资源"
         onChange={(event) => {
@@ -224,21 +215,12 @@ export default function App() {
           <span title={guest.name}>{guest.name}</span>
         </div>
         <button
-          ref={viewToggle}
-          type="button"
-          className="view-button"
-          aria-pressed={inspecting}
-          aria-describedby={inspecting ? "view-instructions" : undefined}
-          disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)}
-          onClick={() => setInspecting((active) => !active)}
-        ><span aria-hidden="true">⟳</span> {inspecting ? "退出 360°" : "360° 查看"}</button>
-        <button
           className="import-button"
-          disabled={inspecting || editingFurniture || restoring || full || loading || Boolean(pendingAsset || selectedPet)}
-          title={full ? "房间最多可以放置 3 只宠物" : undefined}
+          disabled={editingFurniture || restoring || full || loading || Boolean(pendingAsset || selectedPet)}
+          title={full ? "房间最多可以放置 4 只宠物" : undefined}
           onClick={() => input.current?.click()}
         >
-          {editingFurniture ? "正在移动家具" : restoring ? "正在恢复存档…" : loading ? "导入中…" : full ? "已满员 · 3 / 3" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
+          {editingFurniture ? "正在移动家具" : restoring ? "正在恢复存档…" : loading ? "导入中…" : full ? "已满员 · 4 / 4" : pendingAsset ? "正在编辑宠物" : `导入宠物 · ${pets.length} / ${MAX_PETS}`}
         </button>
       </div>
       {error ? (

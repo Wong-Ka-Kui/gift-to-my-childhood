@@ -7,6 +7,7 @@ import {
   RepeatWrapping,
   SRGBColorSpace,
 } from "three";
+import { createWindowView } from "./window-view";
 
 export const ROOM_SIZE = 12;
 export const WALL_HEIGHT = 3.3;
@@ -27,6 +28,7 @@ function canvasTexture(
 
 export function createRoomShell() {
   const room = new Group();
+  room.name = "room";
   // Soft, scalloped cream checks echo the tiled floor in the supplied reference.
   const floorTexture = canvasTexture(512, 512, (ctx) => {
     ctx.fillStyle = "#f5de83";
@@ -107,14 +109,19 @@ export function createRoomShell() {
     wall,
     wallEdge,
   ], wallZ);
-  box(0.18, WALL_HEIGHT, 12.24, -6.03, WALL_HEIGHT / 2, 0, [
+  const westWallMaterials = [
     wall,
     wallEdge,
     wallEdge,
     wallEdge,
     wallEdge,
     wallEdge,
-  ], wallX);
+  ];
+  // Build around the west window so its recessed view has a real opening.
+  box(.18, 1.01, 12.24, -6.03, .505, 0, westWallMaterials, wallX);
+  box(.18, .51, 12.24, -6.03, 3.045, 0, westWallMaterials, wallX);
+  box(.18, 1.78, 6.90, -6.03, 1.90, -2.67, westWallMaterials, wallX);
+  box(.18, 1.78, 3, -6.03, 1.90, 4.62, westWallMaterials, wallX);
   box(12.3, 0.17, 0.28, 0, WALL_HEIGHT, -6.03, trim, wallZ);
   box(0.28, 0.17, 12.3, -6.03, WALL_HEIGHT, 0, trim, wallX);
   box(12, 0.19, 0.12, 0, 0.095, -5.88, trim, wallZ);
@@ -125,20 +132,30 @@ export function createRoomShell() {
   box(0.18, 1.05, 3.84, 6.03, 2.78, 0, wall, wallXBack);
   box(0.28, 0.17, 12.3, 6.03, WALL_HEIGHT, 0, trim, wallXBack);
   box(0.12, 0.19, 12, 5.88, 0.095, 0, trim, wallXBack);
-  box(0.08, 2.05, 1.62, 5.89, 1.03, 0, trim, wallXBack);
-  box(0.06, 2.05, 1.62, 5.87, 1.03, 0, new MeshStandardMaterial({ color: "#c99363", roughness: .8 }), wallXBack);
-  box(0.05, .08, .08, 5.82, 1.03, .58, trim, wallXBack);
+  const homeDoorTrim = trim;
+  box(0.09, 2.12, .10, 5.87, 1.06, -.86, homeDoorTrim, wallXBack);
+  box(0.09, 2.12, .10, 5.87, 1.06, .86, homeDoorTrim, wallXBack);
+  box(0.09, .10, 1.82, 5.87, 2.12, 0, homeDoorTrim, wallXBack);
+  box(0.06, 2.02, 1.68, 5.94, 1.01, 0, new MeshStandardMaterial({ color: "#c99363", roughness: .8 }), wallXBack);
+  box(0.05, .08, .08, 5.87, 1.03, .58, trim, wallXBack);
   // Opposite side: a low window on the south wall, matching the room's scale.
   box(4.4, WALL_HEIGHT, .18, -3.8, WALL_HEIGHT / 2, 6.03, wall, wallZBack);
   box(4.4, WALL_HEIGHT, .18, 3.8, WALL_HEIGHT / 2, 6.03, wall, wallZBack);
-  box(3.2, 1.05, .18, 0, 2.78, 6.03, wall, wallZBack);
+  box(3.2, 1.13, .18, 0, .565, 6.03, wall, wallZBack);
+  box(3.2, .39, .18, 0, 3.105, 6.03, wall, wallZBack);
   box(12.3, .17, .28, 0, WALL_HEIGHT, 6.03, trim, wallZBack);
   box(12, .19, .12, 0, .095, 5.88, trim, wallZBack);
-  box(3.05, 1.75, .04, 0, 2.02, 5.91, new MeshStandardMaterial({ color: "#9edee0", roughness: .9 }), wallZBack);
+  const southWindow = createWindowView(3.2, 1.78);
+  southWindow.position.set(0, 2.02, 6);
+  southWindow.rotation.y = Math.PI;
+  wallZBack.add(southWindow);
   box(3.35, .10, .10, 0, 2.94, 5.86, trim, wallZBack);
   box(3.35, .10, .10, 0, 1.10, 5.86, trim, wallZBack);
   box(.10, 1.85, .10, -1.62, 2.02, 5.86, trim, wallZBack);
   box(.10, 1.85, .10, 1.62, 2.02, 5.86, trim, wallZBack);
+  box(.06, 1.78, .12, 0, 2.02, 5.86, trim, wallZBack);
+  box(3.2, .06, .12, 0, 2.28, 5.86, trim, wallZBack);
+  box(3.55, .12, .36, 0, 1.055, 5.84, trim, wallZBack);
   return room;
 }
 

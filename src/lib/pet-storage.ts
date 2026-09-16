@@ -9,9 +9,14 @@ const DB_VERSION = 2;
 const PETS = "pets";
 const SESSION = "session";
 const GUEST_KEY = "guest";
+const TIME_ORIGIN_KEY = "timeOrigin";
 
 type StoredPet = PetRecord & { ownerId?: string; createdAt?: number };
-export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[]; furniture: FurnitureLayout; care: HomeCare };
+export type LocalHome = { guest: GuestProfile | null; pets: PetRecord[]; furniture: FurnitureLayout; care: HomeCare; timeOrigin: number };
+
+function isTimeOrigin(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -70,14 +75,20 @@ function petsForGuest(records: StoredPet[], id: string): PetRecord[] {
 }
 
 export function loadLocalHome(): Promise<LocalHome> {
-  return transaction("readonly", (tx, result) => {
-    const guest = tx.objectStore(SESSION).get(GUEST_KEY);
-    const layout = tx.objectStore(SESSION).get("furniture");
-    const care = tx.objectStore(SESSION).get("care");
+  // Initialize older saves inside the same serialized transaction that reads
+  // them, so two tabs agree on one epoch without touching pets or care records.
+  return transaction("readwrite", (tx, result) => {
+    const session = tx.objectStore(SESSION);
+    const guest = session.get(GUEST_KEY);
+    const layout = session.get("furniture");
+    const care = session.get("care");
+    const savedTime = session.get(TIME_ORIGIN_KEY);
     const pets = tx.objectStore(PETS).getAll();
     pets.onsuccess = () => {
       const current = (guest.result as GuestProfile | undefined) ?? null;
-      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [], furniture: current && layout.result?.ownerId === current.id ? layout.result.layout : {}, care: current && care.result?.ownerId === current.id ? care.result.state : createHomeCare() });
+      const timeOrigin = isTimeOrigin(savedTime.result) ? savedTime.result : Date.now();
+      if (current && !isTimeOrigin(savedTime.result)) session.put(timeOrigin, TIME_ORIGIN_KEY);
+      result({ guest: current, pets: current ? petsForGuest(pets.result, current.id) : [], furniture: current && layout.result?.ownerId === current.id ? layout.result.layout : {}, care: current && care.result?.ownerId === current.id ? care.result.state : createHomeCare(), timeOrigin });
     };
   });
 }
@@ -96,10 +107,13 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
       if (!existing) session.put(current, GUEST_KEY);
       const layout = session.get("furniture");
       const care = session.get("care");
+      const savedTime = session.get(TIME_ORIGIN_KEY);
       const store = tx.objectStore(PETS);
       const pets = store.getAll();
       pets.onsuccess = () => {
         const records = pets.result as StoredPet[];
+        const timeOrigin = existing && isTimeOrigin(savedTime.result) ? savedTime.result : Date.now();
+        if (!existing || !isTimeOrigin(savedTime.result)) session.put(timeOrigin, TIME_ORIGIN_KEY);
         for (const [index, pet] of records.entries()) {
           if (!pet.ownerId) {
             pet.ownerId = current.id;
@@ -107,7 +121,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
             store.put(pet);
           }
         }
-        result({ guest: current, pets: petsForGuest(records, current.id), furniture: layout.result?.ownerId === current.id ? layout.result.layout : {}, care: care.result?.ownerId === current.id ? care.result.state : createHomeCare() });
+        result({ guest: current, pets: petsForGuest(records, current.id), furniture: layout.result?.ownerId === current.id ? layout.result.layout : {}, care: care.result?.ownerId === current.id ? care.result.state : createHomeCare(), timeOrigin });
       };
     };
   });

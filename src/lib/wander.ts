@@ -39,7 +39,7 @@ function angle(value: number) {
   return Math.atan2(Math.sin(value), Math.cos(value));
 }
 
-function routeBlocked(state: WanderState, targetX: number, targetZ: number) {
+export function routeBlocked(state: WanderState, targetX: number, targetZ: number) {
   const furnitureBlocked = state.obstacles.some((obstacle) => {
     let enter = 0;
     let exit = 1;

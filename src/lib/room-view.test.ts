@@ -17,15 +17,13 @@ function fixture() {
   return { walls, cutaway, camera, aim, opacities };
 }
 
-describe("wall visibility during inspection", () => {
-  it("preserves default walls when entering inspection after focus changes or panning", () => {
+describe("wall visibility during free rotation", () => {
+  it("keeps the initial two walls at the default angle regardless of focus position", () => {
     const f = fixture();
     for (const target of [DEFAULT_ROOM_TARGET, new Vector3(0, .8, 0), new Vector3(16, .8, 0), new Vector3(-80, 20, -50)]) {
       f.aim(target, DEFAULT_ROOM_POSITION.clone().sub(DEFAULT_ROOM_TARGET));
-      f.cutaway.update(f.camera, false);
-      const before = f.opacities();
-      f.cutaway.update(f.camera, true);
-      expect(f.opacities()).toEqual(before);
+      f.cutaway.update(f.camera);
+      expect(f.opacities()).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
       expect(f.walls.filter(w => w.root.visible).length).toBe(4);
     }
     f.cutaway.dispose();
@@ -36,7 +34,7 @@ describe("wall visibility during inspection", () => {
     for (const degrees of [5, 2, 0, -2, -5]) {
       const angle = degrees * Math.PI / 180;
       f.aim(DEFAULT_ROOM_TARGET, new Vector3(Math.sin(angle) * 30, 20, Math.cos(angle) * 30));
-      f.cutaway.update(f.camera, true);
+      f.cutaway.update(f.camera);
       const [left, right, back, front] = f.opacities();
       values.push(left);
       expect(left + right).toBeCloseTo(1);
@@ -49,7 +47,7 @@ describe("wall visibility during inspection", () => {
     expect(values[4]).toBeCloseTo(0);
     expect(values).toEqual([...values].sort((a, b) => b - a));
     f.aim(DEFAULT_ROOM_TARGET, DEFAULT_ROOM_POSITION.clone().sub(DEFAULT_ROOM_TARGET));
-    f.cutaway.update(f.camera, true);
+    f.cutaway.update(f.camera);
     expect(f.opacities()).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
     f.cutaway.dispose();
   });

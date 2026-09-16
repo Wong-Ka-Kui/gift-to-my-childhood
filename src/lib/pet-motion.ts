@@ -15,11 +15,12 @@ import {
 } from "three";
 
 export type PetModel = { root: Group; animations: AnimationClip[] };
-export type MotionPose = { x: number; z: number; yaw: number };
+export type MotionPose = { x: number; z: number; yaw: number; carried?: boolean; sleeping?: number; sitting?: number };
 export type PetMotion = {
   root: Group;
   height: number;
   clearance: number;
+  seatHeight: number;
   mode: "procedural" | "clip" | "static";
   update: (delta: number, pose: MotionPose) => void;
   dispose: () => void;
@@ -89,6 +90,7 @@ export class BipedGait {
   private lastPose: MotionPose = { x: 0, z: 0, yaw: 0 };
   private lastLeg = 1;
   private bodyDrop = 0;
+  private wasCarried = false;
   private readonly local = new Vector3();
   private readonly expected = new Vector3();
   private readonly direction = new Vector3();
@@ -131,6 +133,31 @@ export class BipedGait {
   }
 
   update(delta: number, pose: MotionPose) {
+    const teleported = this.initialized && Math.hypot(pose.x-this.lastPose.x,pose.z-this.lastPose.z)>this.height*.3;
+    if(pose.carried || this.wasCarried || teleported){
+      this.initialized=false;this.bodyDrop=0;this.body.position.y=0;
+      const blend=pose.carried?1-Math.exp(-18*Math.max(0,delta)):1;
+      for(const leg of this.legs){
+        leg.hip.quaternion.slerp(new Quaternion(),blend);
+        leg.knee.quaternion.slerp(new Quaternion(),blend);
+        leg.foot.quaternion.slerp(new Quaternion(),blend);
+        leg.swinging=false;leg.progress=0;
+      }
+      this.wasCarried=!!pose.carried;
+      if(pose.carried)return;
+    }
+    const sitting = pose.sitting ?? 0;
+    if (sitting > 0) {
+      this.initialized = false;
+      this.body.position.y = 0;
+      for (const leg of this.legs) {
+        leg.hip.rotation.set(-Math.PI * .48 * sitting, 0, 0);
+        leg.knee.rotation.set(Math.PI * .48 * sitting, 0, 0);
+        leg.foot.rotation.set(0, 0, 0);
+        leg.swinging = false;
+      }
+      return;
+    }
     if (!this.initialized) {
       for (const leg of this.legs) {
         this.toWorld(leg.ankleRest, pose, leg.planted);
@@ -242,10 +269,14 @@ export function createPetMotion(model: PetModel): PetMotion {
     let previous: MotionPose | null = null;
     let weight = 0;
     return {
-      root, height, clearance: height * 0.13, mode: "clip",
+      root, height, seatHeight: height * .1, clearance: height * 0.13, mode: "clip",
       update(delta, pose) {
-        const speed = previous && delta > 0 ? Math.hypot(pose.x - previous.x, pose.z - previous.z) / delta : 0;
-        weight = MathUtils.damp(weight, speed > 0.01 ? 1 : 0, 10, delta);
+        root.rotation.x=-(pose.sleeping??0)*Math.PI/2;root.position.z=(pose.sleeping??0)*height*.5;
+        root.scale.y = 1 - (pose.sitting ?? 0) * .12;
+        const distance=previous?Math.hypot(pose.x-previous.x,pose.z-previous.z):0;
+        const speed = !pose.carried && distance<height*.3 && previous && delta > 0 ? Math.hypot(pose.x - previous.x, pose.z - previous.z) / delta : 0;
+        if(pose.carried || distance>height*.3)weight=0;
+        weight = MathUtils.damp(weight, speed > 0.01 && !pose.sitting ? 1 : 0, 10, delta);
         action.setEffectiveWeight(weight).setEffectiveTimeScale(MathUtils.clamp(speed / 0.52, 0.5, 1.5));
         mixer.update(delta); previous = { ...pose };
       },
@@ -253,7 +284,7 @@ export function createPetMotion(model: PetModel): PetMotion {
     };
   }
   if (!anatomy || meshes.some((mesh) => mesh instanceof SkinnedMesh || Object.keys(mesh.geometry.morphAttributes).length || mesh.children.length)) {
-    return { root, height, clearance: 0, mode: "static", update() {}, dispose() {} };
+    return { root, height, seatHeight: 0, clearance: 0, mode: "static", update(_delta, pose) { root.rotation.x=-(pose.sleeping??0)*Math.PI/2;root.position.z=(pose.sleeping??0)*height*.5; root.scale.y = 1 - (pose.sitting ?? 0) * .12; }, dispose() {} };
   }
 
   const normalized = samples.map((p) => p.clone().applyAxisAngle(UP, -anatomy.forwardYaw));
@@ -302,8 +333,8 @@ export function createPetMotion(model: PetModel): PetMotion {
     skinned.push(skin);
   }
   return {
-    root, height, clearance: gait.stepReach, mode: "procedural",
-    update: (delta, pose) => gait.update(delta, pose),
+    root, height, seatHeight: anatomy.hipHeight, clearance: gait.stepReach, mode: "procedural",
+    update: (delta, pose) => {root.rotation.x=-(pose.sleeping??0)*Math.PI/2;root.position.z=(pose.sleeping??0)*height*.5;gait.update(delta, {...pose,sitting:pose.sleeping?0:pose.sitting});},
     dispose() { skeleton.dispose(); for (const mesh of skinned) { mesh.geometry.deleteAttribute("skinWeight"); mesh.geometry.deleteAttribute("skinIndex"); } },
   };
 }

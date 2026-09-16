@@ -8,6 +8,23 @@ function setup() {
 }
 
 describe("biped foot placement", () => {
+  it("resets planted feet after carrying and a long drop without dragging them from the old floor",()=>{
+    const gait=setup();const pose={x:0,z:0,yaw:0,carried:false};
+    for(let i=0;i<60;i++){pose.z+=.008;gait.update(1/60,pose);}
+    pose.carried=true;for(let i=0;i<60;i++)gait.update(1/60,pose);
+    for(const leg of gait.legs){expect(leg.swinging).toBe(false);expect(leg.hip.quaternion.angleTo(new (leg.hip.quaternion.constructor as typeof import('three').Quaternion)())).toBeLessThan(.001);}
+    pose.carried=false;pose.x=4;pose.z=-3;gait.update(1/60,pose);gait.body.updateMatrixWorld(true);
+    for(const leg of gait.legs){expect(leg.planted.x).toBeCloseTo(pose.x+leg.ankleRest.x);expect(leg.planted.z).toBeCloseTo(pose.z+leg.ankleRest.z);expect(leg.foot.getWorldPosition(new Vector3()).y).toBeGreaterThanOrEqual(ankleHeight-.001);}
+  });
+  it("bends both legs for sitting and returns to planted walking feet",()=>{
+    const gait=setup(),pose={x:0,z:0,yaw:0,sitting:0};
+    for(let i=0;i<=60;i++){pose.sitting=i/60;gait.update(1/60,pose);}
+    for(const leg of gait.legs){expect(leg.hip.rotation.x).toBeCloseTo(-Math.PI*.48);expect(leg.knee.rotation.x).toBeCloseTo(Math.PI*.48);}
+    for(let i=60;i>=0;i--){pose.sitting=i/60;gait.update(1/60,pose);}
+    for(let i=0;i<120;i++)gait.update(1/60,pose);
+    gait.body.updateMatrixWorld(true);
+    for(const leg of gait.legs)expect(leg.foot.getWorldPosition(new Vector3()).y).toBeCloseTo(ankleHeight,3);
+  });
   it("alternates lifted feet, keeps stance feet planted and soles level", () => {
     const gait = setup();
     const pose = { x: 0, z: 0, yaw: 0 };
