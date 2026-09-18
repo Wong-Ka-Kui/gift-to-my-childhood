@@ -100,11 +100,18 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
   return transaction("readwrite", (tx, result) => {
     const session = tx.objectStore(SESSION);
     const guest = session.get(GUEST_KEY);
-    guest.onsuccess = () => {
+    const archived = session.get(`profile:${candidate.name}`);
+    archived.onsuccess = () => {
       // Multiple first-visit tabs must converge on the same local identity.
       const existing = guest.result as GuestProfile | undefined;
-      const current = existing ?? candidate;
+      const previous = archived.result as LocalHome | undefined;
+      const current = existing ?? previous?.guest ?? candidate;
       if (!existing) session.put(current, GUEST_KEY);
+      if (!existing && previous) {
+        session.put({ ownerId: current.id, layout: previous.furniture }, "furniture");
+        session.put({ ownerId: current.id, state: previous.care }, "care");
+        session.put(previous.timeOrigin, TIME_ORIGIN_KEY);
+      }
       const layout = session.get("furniture");
       const care = session.get("care");
       const savedTime = session.get(TIME_ORIGIN_KEY);
@@ -112,7 +119,7 @@ export function createGuest(name: string, avatar: string): Promise<LocalHome> {
       const pets = store.getAll();
       pets.onsuccess = () => {
         const records = pets.result as StoredPet[];
-        const timeOrigin = existing && isTimeOrigin(savedTime.result) ? savedTime.result : Date.now();
+        const timeOrigin = (existing || previous) && isTimeOrigin(savedTime.result) ? savedTime.result : Date.now();
         if (!existing || !isTimeOrigin(savedTime.result)) session.put(timeOrigin, TIME_ORIGIN_KEY);
         for (const [index, pet] of records.entries()) {
           if (!pet.ownerId) {
@@ -186,6 +193,26 @@ export function savePetPortrait(id: string, portrait: string, ownerId: string): 
       const pet = request.result as StoredPet | undefined;
       if (!pet || pet.ownerId !== ownerId) { tx.abort(); return; }
       store.put({ ...pet, portrait });
+      result(undefined);
+    };
+  });
+}
+
+export function logoutLocal(): Promise<void> {
+  return transaction("readwrite", (tx, result) => {
+    const session = tx.objectStore(SESSION);
+    const guest = session.get(GUEST_KEY);
+    const furniture = session.get("furniture");
+    const care = session.get("care");
+    const time = session.get(TIME_ORIGIN_KEY);
+    time.onsuccess = () => {
+      if (guest.result) session.put({
+        guest: guest.result,
+        furniture: furniture.result?.ownerId === guest.result.id ? furniture.result.layout : {},
+        care: care.result?.ownerId === guest.result.id ? care.result.state : createHomeCare(),
+        timeOrigin: isTimeOrigin(time.result) ? time.result : Date.now(),
+      }, `profile:${guest.result.name}`);
+      session.delete(GUEST_KEY);
       result(undefined);
     };
   });

@@ -22,7 +22,8 @@ describe("furniture placement", () => {
     expect(placementProblem(table, bed.position, items)).toContain("家具");
     const cabinet: PlacedFurniture = { ...bed, id: "cabinet" };
     expect(placementProblem(cabinet, bed.position, items)).toContain("家具");
-    expect(placementProblem(cabinet, { x: 3, z: 0 }, items)).toBeNull();
+    expect(placementProblem(cabinet, { x: 3, z: 0 }, items)).toContain("门口");
+    expect(placementProblem(cabinet, { x: 2.4, z: 0 }, items)).toBeNull();
   });
   it("reserves pets' animated clearance and never mutates committed positions", () => {
     const original = structuredClone(stool.position);

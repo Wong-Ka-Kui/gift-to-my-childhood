@@ -1,5 +1,7 @@
 node_modules/
 dist/
+server-runtime/
+.garden-data/
 *.tsbuildinfo
 .DS_Store
 .env*

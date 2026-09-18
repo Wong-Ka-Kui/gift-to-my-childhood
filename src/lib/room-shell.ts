@@ -8,6 +8,9 @@ import {
   SRGBColorSpace,
 } from "three";
 import { createWindowView } from "./window-view";
+import { hingeDoor } from "./door";
+import { DORM_SIDE_WINDOW } from "./room-fixtures";
+import { createAirConditioner } from "./life-props";
 
 export const ROOM_SIZE = 12;
 export const WALL_HEIGHT = 3.3;
@@ -120,24 +123,46 @@ export function createRoomShell() {
   // Build around the west window so its recessed view has a real opening.
   box(.18, 1.01, 12.24, -6.03, .505, 0, westWallMaterials, wallX);
   box(.18, .51, 12.24, -6.03, 3.045, 0, westWallMaterials, wallX);
-  box(.18, 1.78, 6.90, -6.03, 1.90, -2.67, westWallMaterials, wallX);
-  box(.18, 1.78, 3, -6.03, 1.90, 4.62, westWallMaterials, wallX);
+  const windowStart = DORM_SIDE_WINDOW.z - DORM_SIDE_WINDOW.width / 2;
+  const windowEnd = DORM_SIDE_WINDOW.z + DORM_SIDE_WINDOW.width / 2;
+  box(.18, DORM_SIDE_WINDOW.height, windowStart + 6.12, -6.03, DORM_SIDE_WINDOW.y, (windowStart - 6.12) / 2, westWallMaterials, wallX);
+  box(.18, DORM_SIDE_WINDOW.height, 6.12 - windowEnd, -6.03, DORM_SIDE_WINDOW.y, (windowEnd + 6.12) / 2, westWallMaterials, wallX);
   box(12.3, 0.17, 0.28, 0, WALL_HEIGHT, -6.03, trim, wallZ);
   box(0.28, 0.17, 12.3, -6.03, WALL_HEIGHT, 0, trim, wallX);
   box(12, 0.19, 0.12, 0, 0.095, -5.88, trim, wallZ);
   box(0.12, 0.19, 12, -5.88, 0.095, 0, trim, wallX);
+  const airConditioner = createAirConditioner();
+  airConditioner.position.set(-4.12, 2.78, -5.935);
+  wallZ.add(airConditioner);
   // Opposite side: a centered door on the east wall.
-  box(0.18, WALL_HEIGHT, 4.2, 6.03, WALL_HEIGHT / 2, -3.9, wall, wallXBack);
-  box(0.18, WALL_HEIGHT, 4.2, 6.03, WALL_HEIGHT / 2, 3.9, wall, wallXBack);
-  box(0.18, 1.05, 3.84, 6.03, 2.78, 0, wall, wallXBack);
+  box(0.18, WALL_HEIGHT, 5.02, 6.03, WALL_HEIGHT / 2, -3.61, wall, wallXBack);
+  box(0.18, WALL_HEIGHT, 5.02, 6.03, WALL_HEIGHT / 2, 3.61, wall, wallXBack);
+  box(0.18, .8, 2.2, 6.03, 2.9, 0, wall, wallXBack);
   box(0.28, 0.17, 12.3, 6.03, WALL_HEIGHT, 0, trim, wallXBack);
-  box(0.12, 0.19, 12, 5.88, 0.095, 0, trim, wallXBack);
-  const homeDoorTrim = trim;
-  box(0.09, 2.12, .10, 5.87, 1.06, -.86, homeDoorTrim, wallXBack);
-  box(0.09, 2.12, .10, 5.87, 1.06, .86, homeDoorTrim, wallXBack);
-  box(0.09, .10, 1.82, 5.87, 2.12, 0, homeDoorTrim, wallXBack);
-  box(0.06, 2.02, 1.68, 5.94, 1.01, 0, new MeshStandardMaterial({ color: "#c99363", roughness: .8 }), wallXBack);
-  box(0.05, .08, .08, 5.87, 1.03, .58, trim, wallXBack);
+  for (const z of [-3.59, 3.59]) box(.12, .19, 4.82, 5.88, .095, z, trim, wallXBack);
+  // A closed residential panel door, seated inside a 2.2 × 2.5 opening.
+  // Trim overlaps the wall seam; skirting stops at each jamb.
+  const homeDoor = new MeshStandardMaterial({ color: "#c89469", roughness: .78 });
+  const homeDoorInset = new MeshStandardMaterial({ color: "#b67d54", roughness: .84 });
+  const molding = new MeshStandardMaterial({ color: "#e4b88a", roughness: .75 });
+  const brass = new MeshStandardMaterial({ color: "#c5a05b", roughness: .32, metalness: .65 });
+  for (const z of [-1.10, 1.10]) box(.36, 2.5, .16, 6, 1.25, z, trim, wallXBack);
+  box(.36, .16, 2.36, 6, 2.5, 0, trim, wallXBack);
+  const doorPartStart = wallXBack.children.length;
+  box(.16, 2.36, 2.04, 6.03, 1.21, 0, homeDoor, wallXBack);
+  // Raised molding surrounds inset panels on both faces of the door.
+  for (const x of [5.935, 6.125]) {
+    for (const [y, h] of [[.62, .76], [1.74, .94]]) {
+      box(.035, h, 1.45, x, y, 0, homeDoorInset, wallXBack);
+      for (const z of [-.75, .75]) box(.065, h + .1, .055, x, y, z, molding, wallXBack);
+      for (const dy of [-h / 2 - .025, h / 2 + .025]) box(.065, .055, 1.55, x, y + dy, 0, molding, wallXBack);
+    }
+    box(.06, .26, .12, x, 1.12, .85, brass, wallXBack);
+    box(.16, .065, .07, x < 6 ? x - .07 : x + .07, 1.17, .85, brass, wallXBack);
+    box(.07, .065, .28, x < 6 ? x - .13 : x + .13, 1.17, .745, brass, wallXBack);
+  }
+  hingeDoor(wallXBack, wallXBack.children.slice(doorPartStart), "home-door-leaf", 6.03, -1.02);
+  box(.4, .04, 2.12, 6.03, .02, 0, molding, wallXBack);
   // Opposite side: a low window on the south wall, matching the room's scale.
   box(4.4, WALL_HEIGHT, .18, -3.8, WALL_HEIGHT / 2, 6.03, wall, wallZBack);
   box(4.4, WALL_HEIGHT, .18, 3.8, WALL_HEIGHT / 2, 6.03, wall, wallZBack);

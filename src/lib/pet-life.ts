@@ -1,7 +1,8 @@
 import { MathUtils, type Group } from 'three';
-import { createWander, resumeWander, stepWander, routeBlocked, type WanderObstacle, type WanderState } from './wander';
+import { resumeWander, stepWander, routeBlocked, type WanderObstacle, type WanderState } from './wander';
 import type { PetMotion } from './pet-motion';
 import { getGameTime } from './game-time';
+import { CAMPUS_ROUTE } from './campus-path';
 
 export type PetArea = 'bedroom' | 'classroom';
 export const AREA = {
@@ -15,7 +16,7 @@ export function requiredRoutine(minute: number): Routine {
   if((minute>=600&&minute<720)||(minute>=810&&minute<1020)||(minute>=1080&&minute<1140))return 'class';
   return 'free';
 }
-export type Seat = { kind?: 'bed'; furnitureId?: string; id: string; area: PetArea; x: number; z: number; y: number; yaw: number; width: number; depth: number };
+export type Seat = { kind?: 'bed'; backrest?: boolean; furnitureId?: string; id: string; area: PetArea; x: number; z: number; y: number; yaw: number; width: number; depth: number };
 export type Solid = WanderObstacle & { id: string };
 export type PetLife = {
   id: string; mover: Group; motion: PetMotion; radius: number; wander: WanderState;
@@ -24,6 +25,8 @@ export type PetLife = {
   path: {x:number;z:number}[]; approach: {x:number;z:number} | null;
   required?: Routine; sleepBlend?: number; relocation?: { target: Seat | null; elapsed: number; placed: boolean };
   nextSeat: number; transfer: number; opacity: number; destination: PetArea | null;
+  commute?: { phase: 'exit' | 'road'; points: { x: number; z: number }[]; retry: number };
+  commuteRetry?: number;
 };
 export type LifeWorld = { pets: Map<string, PetLife>; solids(area: PetArea): Solid[]; seats(): Seat[]; timeOrigin: number };
 export function worldX(pet: PetLife) { return pet.wander.x + AREA[pet.area].offset; }
@@ -59,8 +62,8 @@ export function clearSegment(world: LifeWorld, pet: PetLife, from:{x:number;z:nu
 export function routeTo(world: LifeWorld, pet: PetLife, goal:{x:number;z:number}) {
   const start={x:pet.wander.x,z:pet.wander.z};
   if(clearSegment(world,pet,start,goal)) return [goal];
-  const step=.35, a=AREA[pet.area], nodes=[{...start,parent:-1}], queue=[0], seen=new Set<string>();
-  for(let cursor=0;cursor<queue.length&&nodes.length<2500;cursor++) {
+  const step=.2, a=AREA[pet.area], nodes=[{...start,parent:-1}], queue=[0], seen=new Set<string>();
+  for(let cursor=0;cursor<queue.length&&nodes.length<10000;cursor++) {
     const idx=queue[cursor], node=nodes[idx];
     if(Math.hypot(node.x-goal.x,node.z-goal.z)<.7&&clearSegment(world,pet,node,goal)) {
       const path=[goal]; let j=idx;
@@ -72,8 +75,8 @@ export function routeTo(world: LifeWorld, pet: PetLife, goal:{x:number;z:number}
     }
     for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){
       const x=node.x+dx*step,z=node.z+dz*step,key=`${Math.round((x-start.x)/step)},${Math.round((z-start.z)/step)}`;
-      if(seen.has(key)||Math.abs(x)>a.halfX||Math.abs(z)>a.halfZ)continue;seen.add(key);
-      if(clearSegment(world,pet,node,{x,z})){nodes.push({x,z,parent:idx});queue.push(nodes.length-1);}
+      if(seen.has(key)||Math.abs(x)>a.halfX||Math.abs(z)>a.halfZ)continue;
+      if(clearSegment(world,pet,node,{x,z})){seen.add(key);nodes.push({x,z,parent:idx});queue.push(nodes.length-1);}
     }
   }
   return null;
@@ -95,7 +98,7 @@ export function requestSeat(world: LifeWorld, pet: PetLife, seat: Seat, carried 
     return true;
   }
   // Approach from either side or the front. Never cross the chair back or desk.
-  for(const angle of (seat.area==="classroom"?[Math.PI/2,-Math.PI/2,Math.PI/4,-Math.PI/4]:[Math.PI/2,-Math.PI/2,0,Math.PI,Math.PI/4,-Math.PI/4,Math.PI*3/4,-Math.PI*3/4])) {
+  for(const angle of (seat.backrest || seat.area==="classroom"?[Math.PI/2,-Math.PI/2,Math.PI/4,-Math.PI/4]:[Math.PI/2,-Math.PI/2,0,Math.PI,Math.PI/4,-Math.PI/4,Math.PI*3/4,-Math.PI*3/4])) {
     const yaw=seat.yaw+angle, distance=pet.radius+Math.max(seat.width,seat.depth)/2+.18;
     const approach={x:seat.x+Math.sin(yaw)*distance,z:seat.z+Math.cos(yaw)*distance};
     if(!freePoint(world,pet,pet.area,approach.x,approach.z)||!clearSegment(world,pet,approach,seat,seat.id))continue;
@@ -111,7 +114,7 @@ export function standUp(world: LifeWorld, pet: PetLife) {
   if(pet.seat.kind==='bed'){pet.relocation={target:null,elapsed:0,placed:false};return true;}
   // Reserve a free landing before leaving the chair, including other pets.
   const seat=pet.seat;
-  const angles=seat.area==="classroom"?[Math.PI/2,-Math.PI/2,Math.PI/4,-Math.PI/4]:Array.from({length:8},(_,i)=>i*Math.PI/4);
+  const angles=seat.backrest || seat.area==="classroom"?[Math.PI/2,-Math.PI/2,Math.PI/4,-Math.PI/4]:Array.from({length:8},(_,i)=>i*Math.PI/4);
   const candidates=[pet.approach,...angles.map(angle=>({x:seat.x+Math.sin(seat.yaw+angle)*(pet.radius+Math.max(seat.width,seat.depth)/2+.2),z:seat.z+Math.cos(seat.yaw+angle)*(pet.radius+Math.max(seat.width,seat.depth)/2+.2)}))];
   const landing=candidates.find(p=>p&&freePoint(world,pet,pet.area,p.x,p.z)&&clearSegment(world,pet,seat,p,seat.id));
   if(!landing)return false;
@@ -132,37 +135,95 @@ function stepRelocation(world: LifeWorld, pet: PetLife, dt: number) {
   pet.opacity=Math.min(1,Math.abs(move.elapsed-.4)/.4);
   if(move.elapsed>=.8){pet.opacity=1;pet.relocation=undefined;}
 }
+
+function walkCommute(world: LifeWorld, pet: PetLife, dt: number) {
+  const commute = pet.commute!;
+  const destination = pet.destination!;
+  const route = destination === 'classroom' ? CAMPUS_ROUTE : [...CAMPUS_ROUTE].reverse();
+  const exit = { x: route[0].x - AREA[pet.area].offset, z: route[0].z };
+  if (!commute.points.length && commute.phase === 'exit') {
+    commute.retry -= dt;
+    if (commute.retry > 0) { pet.wander.speed = 0; return; }
+    const path = routeTo(world, pet, exit);
+    if (!path) { commute.retry = .6; pet.wander.speed = 0; return; }
+    commute.points = path;
+  }
+  const next = commute.points[0];
+  if (!next) return;
+  const dx = next.x - pet.wander.x, dz = next.z - pet.wander.z;
+  const distance = Math.hypot(dx, dz);
+  const yaw = Math.atan2(dx, dz), turn = Math.atan2(Math.sin(yaw - pet.wander.yaw), Math.cos(yaw - pet.wander.yaw));
+  pet.wander.yaw += MathUtils.clamp(turn, -2.2 * dt, 2.2 * dt);
+  const desiredSpeed = Math.abs(turn) > .55 ? 0 : .95;
+  pet.wander.speed = MathUtils.lerp(pet.wander.speed, desiredSpeed, Math.min(1, dt * 6));
+  const step = Math.min(distance, pet.wander.speed * dt);
+  const candidate = { x: pet.wander.x + dx / (distance || 1) * step, z: pet.wander.z + dz / (distance || 1) * step };
+  const blocked = commute.phase === 'exit'
+    ? !clearSegment(world, pet, pet.wander, candidate)
+    : [...world.pets.values()].some(other => other !== pet && other.seat?.kind !== 'bed' && Math.hypot(candidate.x + AREA[pet.area].offset - worldX(other), candidate.z - other.wander.z) < pet.radius + other.radius + .18);
+  if (blocked) {
+    pet.wander.speed = 0;
+    if (commute.phase === 'exit') { commute.points = []; commute.retry = .6; }
+    return;
+  }
+  pet.wander.x = candidate.x; pet.wander.z = candidate.z;
+  pet.wander.targetX = next.x; pet.wander.targetZ = next.z;
+  if (distance > .025) return;
+  commute.points.shift();
+  if (commute.points.length) return;
+  if (commute.phase === 'exit') {
+    commute.phase = 'road';
+    commute.points = route.slice(1).map(point => ({ x: point.x - AREA[pet.area].offset, z: point.z }));
+  } else {
+    // Change coordinate system at the destination doorway without moving the pet.
+    const x = worldX(pet) - AREA[destination].offset;
+    pet.area = destination; pet.wander.x = x;
+    pet.wander.bound = AREA[destination].halfX - pet.radius;
+    pet.wander.targetX = x; pet.wander.targetZ = pet.wander.z;
+    pet.wander.speed = 0; pet.wander.wait = .2;
+    pet.destination = null; pet.commute = undefined;
+    refreshNavigation(world, pet);
+  }
+}
+
 export function stepLife(world: LifeWorld, pet: PetLife, dt: number, held=false, now=Date.now()) {
   const minute=getGameTime(world.timeOrigin,now).minuteOfDay;
   const routine=requiredRoutine(minute), previous=pet.required;
   pet.required=routine;
   if(pet.relocation){stepRelocation(world,pet,dt);return;}
-  if(previous && previous!=='free'&&routine==='free'&&pet.seat){pet.relocation={target:null,elapsed:0,placed:false};return;}
-  const desired=scheduledArea(minute);
-  if(!held && !pet.destination && desired!==pet.area) {pet.destination=desired;pet.transfer=0;pet.path=[];}
-  if(pet.destination && !held) {
-    pet.transfer+=dt;
-    // Separate buildings deliberately have no connecting floor. Fade between
-    // them instead of walking through walls or across the empty gap.
-    if(pet.transfer>=.45 && pet.area!==pet.destination) {
-      const point=spawnPoint(world,pet,pet.destination);
-      if(!point){pet.transfer=.44;return;}
-      pet.area=pet.destination;cancelSeat(pet);pet.walking=true;pet.manualHeading=null;
-      pet.wander=createWander(AREA[pet.area].halfX-pet.radius,Math.random,obstaclesFor(world,pet.area,pet.radius),point);
-    }
-    pet.opacity=Math.min(1,Math.abs(pet.transfer-.45)/.45);
-    pet.wander.speed=0;
-    if(pet.transfer>=.9){pet.destination=null;pet.opacity=1;}
-    return;
+  if(previous && previous!=='free'&&routine==='free'&&pet.seat){
+    pet.rest = 0;
+    standUp(world,pet);
+    if(pet.relocation)return;
   }
+  const desired=scheduledArea(minute);
+  if (pet.commute && !held) { walkCommute(world, pet, dt); return; }
   if(held)return;
-  if(routine!=='free') {
+  if (desired !== pet.area) {
+    if (pet.seat) {
+      // Finish getting off a chair before walking to the door.
+      pet.required = 'free';
+      if (pet.seatPhase >= 0) standUp(world, pet);
+      if (pet.relocation) return;
+    } else if (![...world.pets.values()].some(other => other.commute && (other.destination !== desired || other.commute.phase === 'exit' || Math.hypot(worldX(other) - (pet.area === 'bedroom' ? CAMPUS_ROUTE[0].x : CAMPUS_ROUTE.at(-1)!.x), other.wander.z) < pet.radius + other.radius + 1.5))) {
+      pet.commuteRetry = Math.max(0, (pet.commuteRetry ?? 0) - dt);
+      if (pet.commuteRetry > 0) return;
+      const start = desired === 'classroom' ? CAMPUS_ROUTE[0] : CAMPUS_ROUTE.at(-1)!;
+      const exitPath = routeTo(world, pet, {x:start.x-AREA[pet.area].offset,z:start.z});
+      if (!exitPath) { pet.wander.speed = 0; pet.commuteRetry = .75; return; }
+      pet.destination = desired; pet.path = []; pet.manualHeading = null; pet.walking = true;
+      pet.commute = { phase: 'exit', points: exitPath, retry: 0 };
+      walkCommute(world, pet, dt); return;
+    } else { pet.wander.speed = 0; return; }
+  }
+  if(routine!=='free' && desired === pet.area) {
     const isBed=routine==='sleep';
     if(pet.seat&&(pet.seat.kind==='bed')===isBed&&pet.seat.area===pet.area&&((isBed&&pet.sleepBlend===1)||(!isBed&&pet.sitBlend===1)))return;
     const occupied=new Set([...world.pets.values()].filter(p=>p!==pet).flatMap(p=>[p.seat?.id,p.relocation?.target?.id]));
     const target=world.seats().find(s=>s.area===pet.area&&(s.kind==='bed')===isBed&&!occupied.has(s.id));
-    if(target){pet.path=[];pet.manualHeading=null;pet.relocation={target,elapsed:0,placed:false};}
-    return;
+    if (isBed) { if(target){pet.path=[];pet.manualHeading=null;pet.relocation={target,elapsed:0,placed:false};} return; }
+    if (!pet.seat) world.seats().filter(s=>s.area===pet.area && s.kind!=='bed' && !occupied.has(s.id)).sort((a,b)=>a.x-b.x || a.z-b.z).some(s=>requestSeat(world,pet,s));
+    if (!pet.seat) { pet.wander.speed = 0; return; }
   }
   if(pet.seat?.kind==='bed'){pet.rest-=dt;if(pet.rest<=0)pet.relocation={target:null,elapsed:0,placed:false};return;}
   refreshNavigation(world,pet);

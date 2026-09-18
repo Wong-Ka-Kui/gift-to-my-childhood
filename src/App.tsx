@@ -7,9 +7,11 @@ import PetProfileCard from "./components/PetProfileCard";
 import { validateFiles, type ModelAsset } from "./lib/assets";
 import { MAX_PETS, type PetRecord } from "./lib/pets";
 import { createHomeCare, type HomeCare, type CareTick } from "./lib/home-items";
-import { loadLocalHome, savePet, saveFurnitureLayout, savePetPortrait, updateHomeCare, type LocalHome } from "./lib/pet-storage";
+import { loadLocalHome, logoutLocal, savePet, saveFurnitureLayout, savePetPortrait, updateHomeCare, type LocalHome } from "./lib/pet-storage";
+import { isRemoteStorageEnabled, remoteLoadHome, remoteLogout, remoteSaveFurnitureLayout, remoteSavePet, remoteSavePortrait, remoteUpdateHomeCare } from "./lib/remote-storage";
 import BehaviorDiary from "./components/BehaviorDiary";
 import GameClock from "./components/GameClock";
+import BackgroundMusic from "./components/BackgroundMusic";
 
 export default function App() {
   const [initialLayout, setInitialLayout] = useState<FurnitureLayout>({});
@@ -30,6 +32,23 @@ export default function App() {
   const [care, setCare] = useState<HomeCare>(createHomeCare);
   const [timeOrigin, setTimeOrigin] = useState(Date.now);
   const [rewardMessage, setRewardMessage] = useState("");
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const profileButton = useRef<HTMLButtonElement>(null);
+  const profileMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    profileMenu.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !profileMenu.current?.contains(event.target) && !profileButton.current?.contains(event.target)) setProfileMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setProfileMenuOpen(false); profileButton.current?.focus(); }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [profileMenuOpen]);
   const rewardTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(rewardTimer.current), []);
   const receiveCare = useCallback((next: HomeCare) => {
@@ -38,22 +57,24 @@ export default function App() {
   const onCareTick = useCallback((tick: CareTick) => {
     const owner = guestId.current;
     if (!owner) return;
-    void updateHomeCare(owner, { tick }).then(({ care }) => receiveCare(care)).catch(() => setError("活动进度暂未保存，请检查浏览器存储空间。"));
+    const operation = isRemoteStorageEnabled() ? remoteUpdateHomeCare({ tick }) : updateHomeCare(owner, { tick });
+    void operation.then(({ care: next }) => { if (guestId.current === owner) receiveCare(next); }).catch(() => { if (guestId.current === owner) setError("活动进度暂未保存，请稍后重试。"); });
   }, [receiveCare]);
   const onClean = useCallback(async (id: string) => {
     const owner = guestId.current;
     if (!owner) return;
     try {
-      const result = await updateHomeCare(owner, { cleanId: id });
+      const result = await (isRemoteStorageEnabled() ? remoteUpdateHomeCare({ cleanId: id }) : updateHomeCare(owner, { cleanId: id }));
+      if (guestId.current !== owner) return;
       receiveCare(result.care);
       setRewardMessage(result.reward ? "打扫干净啦！+5 金币" : "这件物品已经清扫过啦");
       clearTimeout(rewardTimer.current);
       rewardTimer.current = setTimeout(() => setRewardMessage(""), 2000);
-    } catch { setError("清扫未能保存，物品和金币未变动，请重试。"); }
+    } catch { if (guestId.current === owner) setError("清扫未能保存，物品和金币未变动，请重试。"); }
   }, [receiveCare]);
   const onPortrait = useCallback((id: string, portrait: string) => {
     setPets((previous) => previous.map((pet) => pet.id === id ? { ...pet, portrait } : pet));
-    if (guestId.current) void savePetPortrait(id, portrait, guestId.current).catch(() => { /* Regenerate on next load if the thumbnail could not be saved. */ });
+    if (guestId.current) void (isRemoteStorageEnabled() ? remoteSavePortrait(id, portrait) : savePetPortrait(id, portrait, guestId.current)).catch(() => { /* Regenerate on next load if the thumbnail could not be saved. */ });
   }, []);
   const [pendingAsset, setPendingAsset] = useState<ModelAsset | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,7 +85,8 @@ export default function App() {
   const [restoring, setRestoring] = useState(true);
   const importBusy = useRef(false);
   const onFurnitureLayout = useCallback((layout: FurnitureLayout) => {
-    if (guestId.current) void saveFurnitureLayout(layout, guestId.current).catch(() => setError("家具位置暂未保存，刷新后会回到上一次存档。请检查浏览器存储空间。"));
+    const owner = guestId.current;
+    if (owner) void (isRemoteStorageEnabled() ? remoteSaveFurnitureLayout(layout) : saveFurnitureLayout(layout, owner)).catch(() => { if (guestId.current === owner) setError("家具位置暂未保存，刷新后会回到上一次存档。请稍后重试。"); });
   }, []);
   const onReady = useCallback((id: string) => {
     pendingPets.current.delete(id);
@@ -92,11 +114,38 @@ export default function App() {
   }, [onReady]);
   const full = pets.length >= MAX_PETS;
   const selectedPet = pets.find((pet) => pet.id === selectedPetId);
+  const logout = useCallback(async () => {
+    if (importBusy.current || pendingAsset || editingFurnitureRef.current || loggingOut) return;
+    const owner = guestId.current;
+    guestId.current = null;
+    setLoggingOut(true);
+    try {
+      if (isRemoteStorageEnabled()) await remoteLogout(); else await logoutLocal();
+      setProfileMenuOpen(false);
+      setGuest(null);
+      setPets([]);
+      setSelectedPetId(null);
+      setInitialLayout({});
+      setCare(createHomeCare());
+      setPendingAsset(null);
+      setDiaryOpen(false);
+      setFocusArea("all");
+      setError("");
+      setRewardMessage("");
+      clearTimeout(rewardTimer.current);
+      pendingPets.current.clear();
+      importBusy.current = false;
+      setLoading(false);
+    } catch {
+      guestId.current = owner;
+      setError("退出登录失败，请稍后重试。");
+    } finally { setLoggingOut(false); }
+  }, [pendingAsset, loggingOut]);
   useEffect(() => {
     let active = true;
     setRestoring(true);
     setRestoreError("");
-    loadLocalHome()
+    (isRemoteStorageEnabled() ? remoteLoadHome() : loadLocalHome())
       .then((home) => { if (active) enterHome(home); })
       .catch((reason) => {
         if (active) setRestoreError(reason instanceof Error ? reason.message : "暂时无法读取本地存档，请检查浏览器是否允许存储，再重试。");
@@ -105,7 +154,7 @@ export default function App() {
     return () => { active = false; };
   }, [enterHome, restoreAttempt]);
   function importFiles(files: FileList) {
-    if (!guest || editingFurnitureRef.current || restoring || full || pendingAsset || selectedPetId || importBusy.current) return;
+    if (!guest || loggingOut || editingFurnitureRef.current || restoring || full || pendingAsset || selectedPetId || importBusy.current) return;
     try {
       const next = validateFiles(
         Array.from(files, (file) => ({ name: file.name, blob: file })),
@@ -138,7 +187,7 @@ export default function App() {
         pets={pets}
         initialLayout={initialLayout}
         cleanables={care.items}
-        paused={Boolean(pendingAsset || selectedPet)}
+        paused={Boolean(pendingAsset || selectedPet || loggingOut)}
         viewReset={viewReset}
         focusArea={focusArea}
         onCareTick={onCareTick}
@@ -150,13 +199,14 @@ export default function App() {
         onError={onError}
         onPetError={onPetError}
       />
+      <BackgroundMusic />
       <button type="button" className={`diary-tab${diaryOpen ? " is-open" : ""}`} onClick={() => setDiaryOpen((open) => !open)} aria-expanded={diaryOpen} aria-controls="pet-behavior-diary"><span aria-hidden="true">✦</span><b>行为<br />日记</b></button>
       {diaryOpen ? <div id="pet-behavior-diary"><BehaviorDiary pets={pets} onClose={() => setDiaryOpen(false)} /></div> : null}
       <nav className="room-area-switch" aria-label="房间取景">
         {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} type="button" aria-pressed={focusArea === area} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
         <button type="button" className="reset-view-button" disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); }}>回到默认视角</button>
       </nav>
-      <div className="room-view-hint">空白处拖动旋转 · 拖宠物到凳旁 / 床上 · Shift 拖宠物转向</div>
+      <div className="room-view-hint">空白处拖动旋转 · 拖宠物到椅旁 / 床上 · Shift 拖宠物转向</div>
       <div className="room-status">
         <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
         <GameClock timeOrigin={timeOrigin} />
@@ -184,7 +234,7 @@ export default function App() {
             setLoading(true);
             const pet = { id: crypto.randomUUID(), asset: pendingAsset, profile: nextProfile };
             try {
-              await savePet(pet, guest.id);
+              await (isRemoteStorageEnabled() ? remoteSavePet(pet) : savePet(pet, guest.id));
               pendingPets.current.add(pet.id);
               setPets((current) => [...current, pet]);
               setPendingAsset(null);
@@ -210,10 +260,15 @@ export default function App() {
         }}
       />
       <div className="room-toolbar">
-        <div className="guest-info" aria-label="个人信息">
+        {import.meta.env.DEV ? <button className="secondary-button" onClick={() => {
+          void import('./lib/export-starter').then(({ exportStarterPets }) => exportStarterPets()).catch((reason) => setError(String(reason)));
+        }}>导出初始宠物</button> : null}
+        <button ref={profileButton} type="button" className={`guest-info${profileMenuOpen ? " is-open" : ""}`} aria-label="个人信息" aria-haspopup="menu" aria-controls="profile-menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>
           <img src={guest.avatar} alt={`${guest.name}的角色头像`} width="44" height="44" />
           <span title={guest.name}>{guest.name}</span>
-        </div>
+          <span className="guest-info-chevron" aria-hidden="true">⌄</span>
+        </button>
+        {profileMenuOpen ? <div ref={profileMenu} id="profile-menu" className="profile-menu" role="menu" aria-label="个人信息"><div className="profile-menu-name">已登录为 <b>{guest.name}</b></div><button type="button" role="menuitem" disabled={loggingOut || loading || editingFurniture || Boolean(pendingAsset)} onClick={() => void logout()}>{loggingOut ? "正在退出…" : "退出登录"}</button></div> : null}
         <button
           className="import-button"
           disabled={editingFurniture || restoring || full || loading || Boolean(pendingAsset || selectedPet)}

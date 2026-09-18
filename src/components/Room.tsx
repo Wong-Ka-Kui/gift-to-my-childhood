@@ -23,7 +23,7 @@ import { MAX_PETS, type PetRecord } from "../lib/pets";
 import { AREA, scheduledArea, requiredRoutine, requestBed, worldX, obstaclesFor, spawnPoint, freePoint, requestSeat, standUp, cancelSeat, stepLife, type PetLife, type LifeWorld, type Seat, type Solid } from "../lib/pet-life";
 import { getGameTime } from "../lib/game-time";
 import { createRoomShell } from "../lib/room-shell";
-import { createFurniture, type FurnitureItem } from "../lib/furniture";
+import { createFurniture, furnitureSeats, type FurnitureItem } from "../lib/furniture";
 import { createFurnitureEditor } from "../lib/furniture-editor";
 import { furnitureObstacle, type FurnitureLayout } from "../lib/furniture-layout";
 import { CARE_TICK_MS, CLEANABLE_RADIUS, type CareTick, type CleanableItem } from "../lib/home-items";
@@ -34,6 +34,7 @@ import { capturePetPortrait } from "../lib/pet-portrait";
 import { createRoomView, createWallCutaway, DEFAULT_ROOM_POSITION, DEFAULT_ROOM_TARGET } from "../lib/room-view";
 import { createPetMotion, type PetMotion } from "../lib/pet-motion";
 import { createClassroom } from "../classroom/model";
+import { createCampusPath } from "../lib/campus-path";
 
 import type { WanderObstacle } from "../lib/wander";
 const CLASSROOM_OFFSET = 16;
@@ -174,12 +175,17 @@ export default function Room({
     classroom.root.updateMatrixWorld(true);
     const classroomObstacles: Solid[] = [];
     for (const item of classroom.root.children) {
-      if (!["desk", "chair", "lectern"].includes(item.userData.kind) && item.name !== "teaching-platform") continue;
+      if (!["desk", "chair", "lectern", "classroom-prop"].includes(item.userData.kind) && item.name !== "teaching-platform") continue;
       const b = new Box3().setFromObject(item);
       classroomObstacles.push({ id: item.name, minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z });
     }
     classroom.root.position.x = CLASSROOM_OFFSET;
     scene.add(classroom.root);
+    const campusPath = createCampusPath(); scene.add(campusPath);
+    const doors = [
+      { leaf: room.getObjectByName("home-door-leaf")!, x: 6.03 },
+      { leaf: classroom.root.getObjectByName("classroom-door-leaf")!, x: CLASSROOM_OFFSET + 5.02 * CLASSROOM_SCALE },
+    ];
     const classroomFixtures = [...classroom.root.children];
     const cutaway = createWallCutaway([
       { root: room.getObjectByName("room-wall-x")!, axis: "x", side: -1, center: 0 },
@@ -246,9 +252,8 @@ export default function Room({
         return [...solid, ...Array.from(current.cleanables.values(),({item})=>({id:item.id,minX:item.x-AREA[area].offset-.28,maxX:item.x-AREA[area].offset+.28,minZ:item.z-.28,maxZ:item.z+.28}))];
       },
       seats() {
-        const seats: Seat[] = furniture.items.filter(item=>item.id.startsWith("stool")).map(item=>({id:item.id,area:"bedroom",x:item.position.x,z:item.position.z,y:.705,yaw:Math.PI,width:.9,depth:.9}));
+        const seats: Seat[] = furnitureSeats(furniture.items);
         classroom.root.children.filter(item=>item.userData.kind==="chair").forEach(item=>seats.push({id:item.name,area:"classroom",x:item.position.x*CLASSROOM_SCALE,z:item.position.z*CLASSROOM_SCALE,y:.6075*CLASSROOM_SCALE,yaw:Math.PI,width:1.04*CLASSROOM_SCALE,depth:.96*CLASSROOM_SCALE}));
-        for(const item of furniture.items.filter(item=>item.id.startsWith("bunk")))for(const [level,y] of [.76,2.33].entries())seats.push({id:`${item.id}-${level}`,furnitureId:item.id,kind:"bed",area:"bedroom",x:item.position.x,z:item.position.z,y,yaw:0,width:1.98,depth:3.18});
         return seats;
       },
     };
@@ -388,7 +393,7 @@ export default function Room({
     const furnitureEditor = createFurnitureEditor({
       canvas, camera, scene, controls, furniture,
       getPets: () => Array.from(current.pets.values(), (pet) => ({ x: worldX(pet), z: pet.wander.z, radius: pet.radius, height: pet.motion.height + petY(pet) })),
-      canEdit: () => requiredRoutine(getGameTime(timeOrigin).minuteOfDay)==="free" && !callbacks.current.paused && !gesture && !current.loading.size,
+      canEdit: () => requiredRoutine(getGameTime(timeOrigin).minuteOfDay)==="free" && !callbacks.current.paused && !gesture && !current.loading.size && ![...current.pets.values()].some(pet => pet.destination),
       getCleanables: () => Array.from(current.cleanables.values(), ({ item }) => ({ ...item, radius: CLEANABLE_RADIUS })),
       onActive: (active) => {
         lastTap = null;
@@ -422,7 +427,12 @@ export default function Room({
       callbacks.current.onCareTick({
         from, to: now,
         pets: Array.from(current.pets.values(), (pet) => ({ id: pet.id, x: worldX(pet), z: pet.wander.z, radius: pet.radius, yaw: pet.wander.yaw, active: pet.walking && !pet.seat && !pet.destination && gesture?.pet !== pet })),
-        obstacles: life.solids(scheduledArea(getGameTime(timeOrigin).minuteOfDay)).map(o => ({...o,minX:o.minX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset,maxX:o.maxX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset})),
+        obstacles: [
+          ...life.solids(scheduledArea(getGameTime(timeOrigin).minuteOfDay)).map(o => ({...o,minX:o.minX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset,maxX:o.maxX+AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset})),
+          // Keep new litter away from both entrances so it cannot block school traffic.
+          { minX: 4, maxX: 6.2, minZ: -1.2, maxZ: 1.2 },
+          { minX: 20.1, maxX: 22.3, minZ: -1.2, maxZ: 1.2 },
+        ],
         area: { centerX: AREA[scheduledArea(getGameTime(timeOrigin).minuteOfDay)].offset, halfWidth: 5.6, halfDepth: scheduledArea(getGameTime(timeOrigin).minuteOfDay)==="bedroom"?5.4:4.4 },
       });
     };
@@ -458,6 +468,10 @@ export default function Room({
         }
         pet.mover.rotation.y = pet.wander.yaw;
         pet.motion.update(frameDelta,{...pet.wander,carried,sitting:carried?0:pet.sitBlend,sleeping:carried?0:pet.sleepBlend??0});
+      }
+      for (const door of doors) {
+        const open = [...current.pets.values()].some(pet => pet.commute && Math.hypot(worldX(pet) - door.x, pet.wander.z) < 3.5);
+        door.leaf.rotation.y += ((open ? Math.PI / 2 : 0) - door.leaf.rotation.y) * Math.min(1, delta * 7);
       }
       render();
     });
@@ -497,6 +511,7 @@ export default function Room({
       observer.disconnect();
       disposeObject(room);
       disposeObject(classroom.root);
+      disposeObject(campusPath);
       renderer.dispose();
       renderer.forceContextLoss();
       controls.dispose();

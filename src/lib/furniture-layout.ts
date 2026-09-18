@@ -38,6 +38,7 @@ export function placementProblem(item: PlacedFurniture, position: FloorPoint, ot
   const candidate = { ...item, position };
   const box = furnitureObstacle(candidate);
   if (box.minX < FLOOR_LIMITS.minX || box.maxX > FLOOR_LIMITS.maxX || box.minZ < FLOOR_LIMITS.minZ || box.maxZ > FLOOR_LIMITS.maxZ) return "超出地板或碰到墙壁";
+  if (box.maxX > 4.25 && box.minZ < 1.2 && box.maxZ > -1.2) return "请留出门口的通道";
   if (others.some((other) => other.id !== item.id && furnitureTouches(candidate, other))) return "这里已有其他家具";
   // Match the conservative rectangle used by pet navigation, including leg reach.
   if (pets.some((pet) => pet.x >= box.minX - pet.radius - 0.1 && pet.x <= box.maxX + pet.radius + 0.1 && pet.z >= box.minZ - pet.radius - 0.1 && pet.z <= box.maxZ + pet.radius + 0.1)) return "请给宠物留出活动空间";

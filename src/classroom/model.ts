@@ -1,6 +1,8 @@
 import { CanvasTexture, CylinderGeometry, Group, Mesh, MeshStandardMaterial, PlaneGeometry, SphereGeometry, SRGBColorSpace, type Material } from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { createWindowView } from "../lib/window-view";
+import { hingeDoor } from "../lib/door";
+import { createBookcase, createCleaningStand, createWasteBin } from "../lib/life-props";
 
 type XYZ = [number, number, number];
 export const CLASSROOM_COUNTS = { windows: 2, blackboards: 1, lecterns: 1, desks: 4, chairs: 4 } as const;
@@ -54,14 +56,44 @@ export function createClassroom() {
   box(wallX, "left-skirting", [.09, .15, 8], [-4.89, .085, 0], cream);
   box(wallX, "left-cornice", [.25, .12, 8.27], [-5.02, 3.8, 0], cream);
   // Opposite walls appear only while orbiting around the classroom.
-  box(wallXBack, "right-wall-front", [.18, 3.8, 3.05], [5.02, 1.9, -2.5], plaster);
-  box(wallXBack, "right-wall-rear", [.18, 3.8, 3.05], [5.02, 1.9, 2.5], plaster);
-  box(wallXBack, "right-wall-header", [.18, 1.35, 1.95], [5.02, 3.12, 0], plaster);
-  box(wallXBack, "door-jamb-left", [.09, 2.55, .10], [4.9, 1.28, -1.01], wood);
-  box(wallXBack, "door-jamb-right", [.09, 2.55, .10], [4.9, 1.28, 1.01], wood);
-  box(wallXBack, "door-header", [.09, .10, 2.12], [4.9, 2.55, 0], wood);
-  box(wallXBack, "door", [.045, 2.35, 1.82], [4.96, 1.18, 0], surface("#c68f63"));
-  box(wallXBack, "door-handle", [.03, .08, .08], [4.94, 1.25, .62], steel, .01);
+  box(wallXBack, "right-wall-front", [.18, 3.8, 2.99], [5.02, 1.9, -2.595], plaster);
+  box(wallXBack, "right-wall-rear", [.18, 3.8, 2.99], [5.02, 1.9, 2.595], plaster);
+  box(wallXBack, "right-wall-header", [.18, 1, 2.2], [5.02, 3.3, 0], plaster);
+  for (const z of [-2.595, 2.595]) {
+    box(wallXBack, "right-wainscot", [.04, 1.02, 2.83], [4.91, .51, z], mint);
+    box(wallXBack, "right-rail", [.08, .07, 2.83], [4.89, 1.055, z], cream);
+    box(wallXBack, "right-skirting", [.09, .15, 2.83], [4.89, .085, z], cream);
+  }
+  box(wallXBack, "right-cornice", [.25, .12, 8.27], [5.02, 3.8, 0], cream);
+  // School door: light oak, a real observation opening, steel kick plates,
+  // lever handles and a classroom number. All parts follow the wall cutaway.
+  const classroomGlass = new MeshStandardMaterial({ color: "#c4e5e4", roughness: .2, transparent: true, opacity: .24, depthWrite: false });
+  for (const z of [-1.1, 1.1]) box(wallXBack, "door-jamb", [.36, 2.8, .16], [5.02, 1.4, z], steel, .015);
+  box(wallXBack, "door-header", [.36, .16, 2.36], [5.02, 2.8, 0], steel, .015);
+  const doorPartStart = wallXBack.children.length;
+  // Leaf spans y=.03..2.67, z=-1.02..1.02; glass spans y=1.6..2.36.
+  box(wallXBack, "door-lower", [.16, 1.57, 2.04], [5.02, .815, 0], lightWood, .008);
+  box(wallXBack, "door-upper", [.16, .31, 2.04], [5.02, 2.515, 0], lightWood, .008);
+  for (const z of [-.82, .82]) box(wallXBack, "door-stile", [.16, .76, .4], [5.02, 1.98, z], lightWood, .008);
+  box(wallXBack, "door-window", [.025, .76, 1.24], [5.02, 1.98, 0], classroomGlass, .003);
+  for (const x of [4.925, 5.115]) {
+    for (const z of [-.62, .62]) box(wallXBack, "door-glazing-trim", [.04, .84, .055], [x, 1.98, z], woodEdge, .008);
+    for (const y of [1.6, 2.36]) box(wallXBack, "door-glazing-trim", [.04, .055, 1.3], [x, y, 0], woodEdge, .008);
+    box(wallXBack, "door-kick-plate", [.025, .32, 1.86], [x, .23, 0], steel, .01);
+    box(wallXBack, "door-handle-plate", [.04, .28, .13], [x, 1.2, .84], steel, .01);
+    const handleX = x < 5 ? x - .10 : x + .10;
+    box(wallXBack, "door-handle-stem", [.14, .065, .065], [(x + handleX) / 2, 1.25, .84], steel, .018);
+    box(wallXBack, "door-handle", [.065, .065, .30], [handleX, 1.25, .73], steel, .018);
+  }
+  hingeDoor(wallXBack, wallXBack.children.slice(doorPartStart), "classroom-door-leaf", 5.02, -1.02);
+  box(wallXBack, "door-threshold", [.4, .04, 2.12], [5.02, .02, 0], steel, .006);
+  box(wallXBack, "classroom-number-backing", [.08, .32, 1.15], [4.88, 3.13, 0], steel, .03);
+  const doorSign = panel(wallXBack, "classroom-number", 1.05, .26, [4.835, 3.13, 0], texture(420, 104, ctx => {
+    ctx.fillStyle = "#718e80"; ctx.fillRect(0, 0, 420, 104);
+    ctx.fillStyle = "#fff5dc"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = 'bold 48px "PingFang SC", sans-serif'; ctx.fillText("一年一班", 210, 54);
+  }));
+  doorSign.rotation.y = -Math.PI / 2;
   box(wallZBack, "rear-wall-left", [3.45, 3.8, .18], [-3.28, 1.9, 4.02], plaster);
   box(wallZBack, "rear-wall-right", [3.45, 3.8, .18], [3.28, 1.9, 4.02], plaster);
   box(wallZBack, "rear-wall-window-header", [3.11, .82, .18], [0, 3.39, 4.02], plaster);
@@ -116,7 +148,7 @@ export function createClassroom() {
     box(book, "book-label", [.21, .006, .115], [.025, .069, -.07], paper, .002);
   }
   const lectern = new Group(); lectern.name = "lectern"; lectern.userData.kind = "lectern"; lectern.position.set(0, .14, -2.6); root.add(lectern);
-  box(root, "teaching-platform", [6.4, .14, 1.8], [0, .07, -2.9], lightWood, .045);
+  box(root, "teaching-platform", [2.9, .14, 1.8], [0, .07, -2.9], lightWood, .045);
   box(lectern, "lectern-top", [2.65, .13, .97], [0, 1.23, 0], lightWood, .065);
   for (const x of [-1.08, 1.08]) box(lectern, "lectern-side", [.13, 1.16, .78], [x, .58, 0], wood);
   box(lectern, "lectern-front", [2.1, .76, .075], [0, .72, .33], wood);
@@ -127,7 +159,8 @@ export function createClassroom() {
   for (let i = 0; i < 3; i++) { const pencil = cylinder(lectern, "pencil", .012, .27, [.84 + .026 * i, 1.5, -.1], lightWood); pencil.rotation.z = (i - 1) * .1; }
   cup.userData.decoration = true;
 
-  for (const [index, [x, z]] of [[-2.35, -1.2], [2.35, -1.2], [-2.35, 1.45], [2.35, 1.45]].entries()) {
+  // Leave a transverse aisle from the door to both columns of seats.
+  for (const [index, [x, z]] of [[-2.35, -2.75], [2.35, -2.75], [-2.35, 1.65], [2.35, 1.65]].entries()) {
     const desk = new Group(); desk.name = `student-desk-${index + 1}`; desk.userData.kind = "desk"; desk.position.set(x, 0, z); root.add(desk);
     box(desk, "desk-top", [1.65, .12, .95], [0, 1.02, 0], lightWood, .055);
     box(desk, "desk-apron", [1.41, .2, .73], [0, .84, 0], wood);
@@ -138,7 +171,7 @@ export function createClassroom() {
     box(desk, "desk-crossbar", [1.3, .045, .045], [0, .31, -.32], steel, .014);
     notebook(desk, -.3, 1.08, -.02, ["#7eaaa1", "#cf9579", "#afacc3", "#9aac78"][index]);
     box(desk, "student-pencil", [.28, .024, .024], [.4, 1.095, .16], woodEdge, .005).rotation.y = -.15;
-    const chair = new Group(); chair.name = `student-chair-${index + 1}`; chair.userData.kind = "chair"; chair.position.set(x, 0, z + 1.45); root.add(chair);
+    const chair = new Group(); chair.name = `student-chair-${index + 1}`; chair.userData.kind = "chair"; chair.position.set(x, 0, z + 1.25); root.add(chair);
     box(chair, "seat", [1.04, .095, .96], [0, .56, 0], lightWood, .055);
     for (const dx of [-.42, .42]) for (const dz of [-.38, .38]) {
       cylinder(chair, "chair-leg", .03, .53, [dx, .265, dz], steel);
@@ -148,6 +181,30 @@ export function createClassroom() {
     box(chair, "backrest", [1.08, .3, .07], [0, 1.01, .47], lightWood, .04);
     box(chair, "chair-crossbar", [.51, .04, .04], [0, .25, .23], steel, .01);
   }
+  function floorProp(name: string, group: Group, x: number, z: number, yaw = 0) {
+    group.name = name; group.userData.kind = "classroom-prop";
+    group.position.set(x, 0, z); group.rotation.y = yaw; root.add(group);
+  }
+  // A low library beneath the rear window leaves the glass unobstructed.
+  // Cleaning tools live in the front corner, clear of the cross aisle.
+  floorProp("classroom-bookcase", createBookcase(2.1, 1.02), 0, 3.52, Math.PI);
+  floorProp("classroom-cleaning-stand", createCleaningStand(), 4.36, -3.52);
+  floorProp("classroom-waste-bin", createWasteBin("#8fa49a"), 3.55, -3.55);
+  // Notices remain attached to the wall during camera cutaways.
+  const notices = new Group(); notices.name = "classroom-noticeboard";
+  notices.position.set(-3.45, 2.45, 3.87); notices.rotation.y = Math.PI; wallZBack.add(notices);
+  box(notices, "notice-frame", [2.15, 1.24, .075], [0, 0, 0], wood);
+  box(notices, "cork-board", [2.02, 1.11, .025], [0, 0, .048], surface("#ba9b72"));
+  panel(notices, "classroom-notices", 1.95, 1.04, [0, 0, .064], texture(780, 416, ctx => {
+    ctx.fillStyle = "#ba9b72"; ctx.fillRect(0, 0, 780, 416);
+    for (const [i, title] of ["课程表", "值日表", "阅读角"].entries()) {
+      const x = 26 + i * 254;
+      ctx.fillStyle = ["#f4edce", "#dbe6d4", "#e6ddce"][i]; ctx.fillRect(x, 28, 222, 358);
+      ctx.fillStyle = "#537367"; ctx.textAlign = "center"; ctx.font = 'bold 28px "PingFang SC", sans-serif'; ctx.fillText(title, x + 111, 88);
+      ctx.fillStyle = "#9cac94"; for (let line = 0; line < 6; line++) ctx.fillRect(x + 24, 125 + line * 36, 174 - line % 2 * 36, 5);
+      ctx.fillStyle = "#b77760"; ctx.beginPath(); ctx.arc(x + 111, 41, 7, 0, Math.PI * 2); ctx.fill();
+    }
+  }));
   // A small clock is attached to the front wall, separate from all required furniture.
   const clock = new Group(); clock.name = "wall-clock"; clock.position.set(3.65, 2.8, -3.88); wallZ.add(clock);
   const rim = cylinder(clock, "clock-rim", .3, .09, [0, 0, 0], wood); rim.rotation.x = Math.PI / 2;

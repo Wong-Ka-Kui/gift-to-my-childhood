@@ -9,7 +9,6 @@ import {
   Mesh,
   MeshStandardMaterial,
   RepeatWrapping,
-  SphereGeometry,
   SRGBColorSpace,
   Vector3,
   type Material,
@@ -18,8 +17,16 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 
 import { placementProblem, type FurnitureFootprint, type FurnitureLayout, type PlacedFurniture } from "./furniture-layout";
 import { createWindowView } from "./window-view";
+import type { Seat } from "./pet-life";
+import { DORM_SIDE_WINDOW } from "./room-fixtures";
+import { createBookcase, createCleaningStand, createDeskSupplies, createLaundryBasket, createPottedPlant, createShoeRack, createWasteBin } from "./life-props";
 
-export type FurnitureItem = PlacedFurniture & { group: Group; label: string };
+type FurnitureSeat = Pick<Seat, "kind" | "backrest" | "y" | "yaw" | "width" | "depth">;
+export type FurnitureItem = PlacedFurniture & { group: Group; label: string; seat?: FurnitureSeat };
+
+export function furnitureSeats(items: readonly FurnitureItem[]): Seat[] {
+  return items.flatMap(item => item.seat ? [{ ...item.seat, id: item.id, furnitureId: item.id, area: "bedroom" as const, x: item.position.x, z: item.position.z }] : []);
+}
 
 const material = (color: string, roughness = 0.75) =>
   new MeshStandardMaterial({ color, roughness });
@@ -54,20 +61,6 @@ function cylinder(
     new CylinderGeometry(radiusTop, radiusBottom, height, segments),
     surface,
   );
-  shape.position.set(...position);
-  shape.castShadow = shape.receiveShadow = true;
-  parent.add(shape);
-  return shape;
-}
-
-function ellipsoid(
-  parent: Group,
-  scale: [number, number, number],
-  position: [number, number, number],
-  surface: Material,
-) {
-  const shape = new Mesh(new SphereGeometry(1, 24, 16), surface);
-  shape.scale.set(...scale);
   shape.position.set(...position);
   shape.castShadow = shape.receiveShadow = true;
   parent.add(shape);
@@ -140,8 +133,10 @@ function fabricTexture(kind: "gingham" | "duvet" | "curtain") {
 function createWindow() {
   const window = new Group();
   // Model the window in its local XY plane, then face it into the room.
-  window.position.set(-6, 1.9, 1.95);
+  window.name = "dorm-side-window";
+  window.position.set(-6, DORM_SIDE_WINDOW.y, DORM_SIDE_WINDOW.z);
   window.rotation.y = Math.PI / 2;
+  window.scale.x = DORM_SIDE_WINDOW.width / 2.34;
   const wood = material("#efc790");
   const cream = material("#fff2d6");
   window.add(createWindowView(2.34, 1.78));
@@ -189,73 +184,122 @@ function createWindow() {
   return window;
 }
 
-function createBunk(x: number) {
-  const bed = new Group(); bed.position.set(x, 0, -3.75);
-  const wood = material("#e6bc85"), cream = material("#fff0d2");
-  const duvet = new MeshStandardMaterial({ map: fabricTexture("duvet"), roughness: 1 });
-  for (const dx of [-1.05, 1.05]) for (const z of [-1.65, 1.65]) rounded(bed,[.12,3.2,.12],[dx,1.6,z],wood);
-  for(const [level,y] of [.55,2.12].entries()) {
-    rounded(bed,[2.16,.14,3.4],[0,y-.14,0],wood);
-    const mattress=rounded(bed,[1.98,.18,3.18],[0,y-.02,0],cream,.08);
-    mattress.name=`mattress-${level}`;
-    rounded(bed,[1.94,.08,2.4],[0,y+.11,.3],duvet,.04);
-    rounded(bed,[.9,.15,.48],[0,y+.13,-1.18],cream,.05);
-    for(const z of [-1.65,1.65]) rounded(bed,[2.15,.3,.1],[0,y+.3,z],wood);
-    if(level===1){rounded(bed,[.08,.12,3.2],[-1.03,y+.45,0],wood);rounded(bed,[.08,.12,2.3],[1.03,y+.45,-.35],wood);}
+function createLaptop() {
+  const laptop = new Group(); laptop.name = "laptop";
+  const shell = material("#56626a", .4), keys = material("#d6dbd8", .55);
+  rounded(laptop, [.82, .035, .55], [0, .018, 0], shell, .015);
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 9; col++) {
+    rounded(laptop, [.058, .008, .037], [-.3 + col * .075, .039, -.17 + row * .055], keys, .005);
   }
-  for(const z of [.8,1.4]) rod(bed,[1.22,.06,z],[1.08,2.65,z],.04,wood);
-  for(let i=0;i<6;i++)rod(bed,[1.2-i*.02,.3+i*.4,.8],[1.2-i*.02,.3+i*.4,1.4],.035,wood);
-  return bed;
-}
-function createLongDesk() {
-  const desk=new Group();desk.position.set(0,0,2.3);
-  const wood=material("#e6bc85"), cream=material("#fff0d2");
-  rounded(desk,[9.8,.14,1.25],[0,1.13,0],wood,.06);
-  for(const x of [-4.55,0,4.55])for(const z of [-.43,.43])rounded(desk,[.12,1.08,.12],[x,.54,z],wood);
-  for(const x of [-3.6,-1.2,1.2,3.6]) {
-    rounded(desk,[.55,.04,.43],[x,1.225,-.12],cream);
-    rounded(desk,[.32,.025,.035],[x+.2,1.25,.2],material("#84a997"));
-  }
-  return desk;
+  rounded(laptop, [.25, .008, .105], [0, .039, .17], keys, .009);
+  const lid = new Group(); lid.position.set(0, .045, -.255); lid.rotation.x = -.15; laptop.add(lid);
+  rounded(lid, [.82, .52, .035], [0, .26, 0], shell, .018);
+  const screen = new MeshStandardMaterial({ color: "#98d9df", emissive: "#4d8b99", emissiveIntensity: .18, roughness: .5 });
+  rounded(lid, [.74, .435, .008], [0, .27, .022], screen, .01);
+  rounded(lid, [.4, .25, .005], [.055, .285, .028], material("#e8f0dc"), .012);
+  rounded(lid, [.4, .038, .005], [.055, .39, .032], material("#76a7ad"), .006);
+  for (let row = 0; row < 3; row++) rounded(lid, [.26 - row * .04, .014, .005], [.025, .32 - row * .047, .033], material("#a8c4be"), .003);
+  return laptop;
 }
 
-function createStool(x: number, z: number) {
-  const stool = new Group();
-  stool.position.set(x, 0, z);
-  const yellow = material("#efc349", 0.62);
-  const cushion = material("#ffd564", 0.8);
-  cylinder(stool, 0.40, 0.39, 0.06, [0, 0.05, 0], material("#dbad48"));
-  cylinder(stool, 0.44, 0.42, 0.52, [0, 0.32, 0], yellow);
-  ellipsoid(stool, [0.45, 0.105, 0.45], [0, 0.60, 0], cushion);
-  cylinder(stool, 0.446, 0.446, 0.025, [0, 0.55, 0], material("#efbf4a"));
-  return stool;
+function createLoftBed(x: number, z: number, yaw: number, color: string) {
+  const bed = new Group(); bed.position.set(x, 0, z); bed.rotation.y = yaw;
+  const frame = material("#d2ddd6", .55), wood = material("#d9b582"), edge = material("#b89466");
+  const cream = material("#fff2d8"), duvet = material(color, 1), metal = material("#71877f", .45);
+  // Long side faces the aisle. One upper berth leaves headroom over the desk.
+  for (const dx of [-1.8, 1.8]) for (const dz of [-.99, .99]) rounded(bed, [.1, 3.05, .1], [dx, 1.525, dz], frame);
+  rounded(bed, [3.7, .14, 2.1], [0, 2.24, 0], frame);
+  rounded(bed, [3.48, .16, 1.92], [0, 2.39, 0], cream, .075).name = "mattress";
+  rounded(bed, [2.66, .07, 1.87], [.32, 2.505, 0], duvet, .04);
+  rounded(bed, [.49, .13, 1.1], [-1.33, 2.525, 0], cream, .065);
+  for (const dx of [-1.8, 1.8]) {
+    rounded(bed, [.08, .1, 2], [dx, 2.99, 0], frame);
+    for (const dz of [-.5, 0, .5]) rounded(bed, [.06, .52, .05], [dx, 2.74, dz], frame);
+  }
+  rounded(bed, [3.6, .1, .08], [0, 2.99, -.99], frame);
+  rounded(bed, [2.72, .1, .08], [-.43, 2.99, .99], frame);
+  for (const dx of [-1.3, -.55, .2, .87]) rounded(bed, [.055, .51, .055], [dx, 2.745, .99], frame);
+  // A compact wardrobe and book shelf sit below the bed, beside the desk.
+  rounded(bed, [.79, 2.1, 1.77], [-1.32, 1.05, -.02], wood);
+  rounded(bed, [.7, 1.92, .05], [-1.32, 1.07, .88], cream, .012);
+  rounded(bed, [.035, .27, .045], [-1.08, 1.12, .925], metal, .01);
+  rounded(bed, [2.5, .12, 1.43], [.35, 1.13, .22], wood, .035).name = "study-desktop";
+  rounded(bed, [.10, 1.07, 1.32], [1.55, .535, .2], wood);
+  rounded(bed, [2.48, .5, .055], [.35, .77, -.47], edge);
+  rounded(bed, [2.48, .075, .48], [.35, 1.78, -.67], wood);
+  for (let i = 0; i < 5; i++) rounded(bed, [.095, .28 + i % 2 * .06, .24], [-.55 + i * .12, 1.96 + i % 2 * .03, -.65], material(["#83a69c", "#bd9482", "#e8d8ac"][i % 3]), .008);
+  const laptop = createLaptop(); laptop.position.set(.27, 1.19, .34); bed.add(laptop);
+  rounded(bed, [.35, .045, .44], [1.09, 1.215, .27], cream, .01);
+  const supplies = createDeskSupplies(color); supplies.position.set(-.62, 1.19, .4); bed.add(supplies);
+  // Ladder occupies the right-hand end, leaving desk and chair access clear.
+  for (const dx of [1.18, 1.73]) rod(bed, [dx, .06, 1.17], [dx, 2.91, .99], .033, metal);
+  for (let i = 0; i < 7; i++) rod(bed, [1.18, .28 + i * .38, 1.156 - i * .024], [1.73, .28 + i * .38, 1.156 - i * .024], .035, metal);
+  return bed;
+}
+
+function createDormChair(x: number, z: number, yaw: number) {
+  const chair = new Group(); chair.position.set(x, 0, z); chair.rotation.y = yaw;
+  const steel = material("#71877f", .5), wood = material("#dfbd88"), feet = material("#58675f");
+  rounded(chair, [1.04, .10, 1.02], [0, .63, 0], wood, .05);
+  for (const dx of [-.43, .43]) for (const dz of [-.41, .41]) {
+    rod(chair, [dx, .045, dz], [dx * .95, .60, dz * .95], .035, steel);
+    cylinder(chair, .044, .044, .07, [dx, .035, dz], feet, 12);
+  }
+  for (const dx of [-.43, .43]) rod(chair, [dx, .56, .46], [dx, 1.30, .53], .032, steel);
+  rounded(chair, [1.04, .36, .075], [0, 1.13, .515], wood, .04);
+  rod(chair, [-.43, .28, .41], [.43, .28, .41], .025, steel);
+  return chair;
 }
 
 export function createFurniture(layout: FurnitureLayout = {}) {
   const root = new Group();
   root.name = "home-furniture";
   const items: FurnitureItem[] = [];
-  function add(id: string, label: string, group: Group, round = false) {
+  const restoredLayout = { ...layout };
+  function add(id: string, label: string, group: Group, seat?: FurnitureSeat) {
     group.name = id;
-    // Measure relative to the anchor; the bed's ladder is deliberately off-center.
+    // Include the ladder and chair back in placement and navigation bounds.
     group.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(group);
     const minX = bounds.min.x - group.position.x, maxX = bounds.max.x - group.position.x;
     const minZ = bounds.min.z - group.position.z, maxZ = bounds.max.z - group.position.z;
-    const footprint: FurnitureFootprint = round
-      ? { kind: "circle", radius: Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ), Math.abs(maxZ)) }
-      : { kind: "rect", minX, maxX, minZ, maxZ };
-    items.push({ id, label, group, footprint, position: { x: group.position.x, z: group.position.z } });
+    const footprint: FurnitureFootprint = { kind: "rect", minX, maxX, minZ, maxZ };
+    items.push({ id, label, group, footprint, seat, position: { x: group.position.x, z: group.position.z } });
     root.add(group);
   }
   const window = createWindow();
   root.add(window);
-  add("bunk-left", "双层床", createBunk(-3.5));
-  add("bunk-right", "双层床", createBunk(2.8));
-  add("long-desk", "四人长书桌", createLongDesk());
-  [-3.6,-1.2,1.2,3.6].forEach((x,i)=>add(`stool-${i+1}`, "小圆凳", createStool(x,4.1), true));
+  const bedColors = ["#8ab8b2", "#b5bed5", "#d7ad96", "#afbd8e"];
+  // Two close-set units per wall form an L. The corner clears both ladders;
+  // the east doorway opens directly onto the free centre of the room.
+  for (const [i, [x, z, yaw]] of [[-.35, -4.65, 0], [3.44, -4.65, 0], [-4.65, -1.43, Math.PI / 2], [-4.65, 2.36, Math.PI / 2]].entries()) {
+    // Versioned IDs ensure the earlier two-row layout cannot override this one.
+    add(`dorm-l-loft-${i + 1}`, `${i + 1}号上床下桌`, createLoftBed(x, z, yaw, bedColors[i]), { kind: "bed", y: 2.54, yaw: yaw + Math.PI / 2, width: 1.92, depth: 3.48 });
+    const chairX = x + .27 * Math.cos(yaw) + 2.18 * Math.sin(yaw);
+    const chairZ = z - .27 * Math.sin(yaw) + 2.18 * Math.cos(yaw);
+    add(`dorm-l-chair-${i + 1}`, `${i + 1}号靠背椅`, createDormChair(chairX, chairZ, yaw), { backrest: true, y: .68, yaw: yaw + Math.PI, width: 1.04, depth: 1.02 });
+    // Upgrade previously saved defaults, while keeping user-arranged chairs.
+    const saved = layout[`dorm-l-chair-${i + 1}`], bedSaved = layout[`dorm-l-loft-${i + 1}`];
+    if (saved && Math.hypot(saved.x - x - .27 * Math.cos(yaw) - 2.38 * Math.sin(yaw), saved.z - z + .27 * Math.sin(yaw) - 2.38 * Math.cos(yaw)) < .001 &&
+      (!bedSaved || Math.hypot(bedSaved.x - x, bedSaved.z - z) < .001)) {
+      restoredLayout[`dorm-l-chair-${i + 1}`] = { x: chairX, z: chairZ };
+    }
+  }
+  // Keep daily storage along the south/east edges, away from the entrance
+  // and chair approaches. These share furniture movement and save handling.
+  const shelf = createBookcase(2.1, .94); shelf.position.set(0, 0, 5.48); shelf.rotation.y = Math.PI;
+  add("dorm-bookcase", "宿舍书架", shelf);
+  const shoes = createShoeRack(); shoes.position.set(5.25, 0, 3.05); shoes.rotation.y = -Math.PI / 2;
+  const plant = createPottedPlant(); plant.position.set(.51, .805, 0); shoes.add(plant);
+  add("dorm-shoe-rack", "鞋架", shoes);
+  const laundry = createLaundryBasket(); laundry.position.set(5.15, 0, 4.72); laundry.rotation.y = -Math.PI / 2;
+  add("dorm-laundry-basket", "洗衣篮", laundry);
+  const bin = createWasteBin(); bin.position.set(5.22, 0, 1.68); bin.rotation.y = -Math.PI / 2;
+  add("dorm-waste-bin", "垃圾桶", bin);
+  const cleaning = createCleaningStand(); cleaning.position.set(2.45, 0, 5.45); cleaning.rotation.y = Math.PI;
+  add("dorm-cleaning-stand", "扫把与簸箕", cleaning);
   // Apply a saved layout together, so swapping two items remains valid on reload.
-  const restored = items.map((item) => ({ ...item, position: layout[item.id] ?? item.position }));
+  const restored = items.map((item) => ({ ...item, position: restoredLayout[item.id] ?? item.position }));
   if (restored.every((item) => !placementProblem(item, item.position, restored))) {
     items.forEach((item, index) => {
       item.position = { ...restored[index].position };

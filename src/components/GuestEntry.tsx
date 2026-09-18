@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createGuest, type LocalHome } from "../lib/pet-storage";
+import { isRemoteStorageEnabled, remoteCreateGuest } from "../lib/remote-storage";
 
 export default function GuestEntry({ onEnter }: { onEnter: (home: LocalHome) => void }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -11,10 +12,10 @@ export default function GuestEntry({ onEnter }: { onEnter: (home: LocalHome) => 
       if (typeof event.data.name !== "string" || typeof event.data.avatar !== "string") return;
       busy.current = true;
       try {
-        const home = await createGuest(event.data.name, event.data.avatar);
+        const home = await (isRemoteStorageEnabled() ? remoteCreateGuest(event.data.name, event.data.avatar) : createGuest(event.data.name, event.data.avatar));
         if (active) onEnter(home);
       } catch {
-        if (active) frame.current?.contentWindow?.postMessage({ type: "guest:error", message: "未能保存登录信息，请检查浏览器存储空间后重试。" }, location.origin);
+        if (active) frame.current?.contentWindow?.postMessage({ type: "guest:error", message: "未能保存登录信息，请稍后重试。" }, location.origin);
       } finally {
         busy.current = false;
       }

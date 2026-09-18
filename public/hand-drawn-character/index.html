@@ -80,7 +80,7 @@
   </div>
 
   <form id="guest-form" class="guest-form">
-    <button id="enter-room" type="submit" disabled>游客进入 →</button>
+    <button id="enter-room" type="submit" disabled>登录</button>
     <p id="guest-error" class="guest-error" role="alert"></p>
   </form>
   <p class="guest-copy save-note">无需密码 · 名字和宠物会留在这个浏览器里</p>
@@ -1158,7 +1158,7 @@ input.addEventListener('blur', () => { followMouse = true; });
 const guestMode = new URLSearchParams(location.search).get('mode') === 'guest' && window.parent !== window;
 if (guestMode) {
   document.body.classList.add('guest-entry');
-  document.querySelector('h1').textContent = '你叫什么名字？';
+  document.querySelector('h1').textContent = '取一个名字吧👀';
   input.placeholder = '输入你的名字…';
   const form = document.getElementById('guest-form');
   const enter = document.getElementById('enter-room');
@@ -1182,7 +1182,7 @@ if (guestMode) {
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.source !== parent || event.data?.type !== 'guest:error') return;
     saving = false; input.disabled = false;
-    enter.textContent = '游客进入 →';
+    enter.textContent = '登录';
     error.textContent = event.data.message; update();
   });
 }

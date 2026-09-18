@@ -1,8 +1,8 @@
 import { MathUtils, Mesh, MOUSE, TOUCH, Vector3, type Material, type Object3D, type OrthographicCamera } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-export const DEFAULT_ROOM_POSITION = new Vector3(19, 21, 33);
-export const DEFAULT_ROOM_TARGET = new Vector3(7.5, .8, 0);
+export const DEFAULT_ROOM_POSITION = new Vector3(21.5, 21, 34.8);
+export const DEFAULT_ROOM_TARGET = new Vector3(10, .8, 1.8);
 
 /** Always orbit; focusing or resetting flushes damping and captured gestures. */
 export function createRoomView(camera: OrthographicCamera, controls: OrbitControls, canvas: HTMLCanvasElement) {
