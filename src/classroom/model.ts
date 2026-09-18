@@ -160,7 +160,7 @@ export function createClassroom() {
   cup.userData.decoration = true;
 
   // Leave a transverse aisle from the door to both columns of seats.
-  for (const [index, [x, z]] of [[-2.35, -2.75], [2.35, -2.75], [-2.35, 1.65], [2.35, 1.65]].entries()) {
+  for (const [index, [x, z]] of [[-2.35, -2.5], [2.35, -2.5], [-2.35, 1.65], [2.35, 1.65]].entries()) {
     const desk = new Group(); desk.name = `student-desk-${index + 1}`; desk.userData.kind = "desk"; desk.position.set(x, 0, z); root.add(desk);
     box(desk, "desk-top", [1.65, .12, .95], [0, 1.02, 0], lightWood, .055);
     box(desk, "desk-apron", [1.41, .2, .73], [0, .84, 0], wood);

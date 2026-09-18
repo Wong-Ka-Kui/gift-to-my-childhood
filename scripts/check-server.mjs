@@ -26,6 +26,10 @@ async function api(route, cookie, input) {
 try {
   await start();
   assert.equal((await fetch(`${origin}/`)).status, 200);
+  const musicResponse = await fetch(`${origin}/audio/bgm/main.mp3`);
+  assert.equal(musicResponse.status, 200);
+  assert.equal(musicResponse.headers.get('content-type'), 'audio/mpeg');
+  assert.deepEqual(Buffer.from(await musicResponse.arrayBuffer()), await readFile('public/audio/bgm/main.mp3'));
   assert.equal((await api('home')).status, 401);
   const guestInput = { name: '同名游客', avatar: 'data:image/png;base64,YQ==' };
   const guestResponse = await api('guest', null, guestInput);
@@ -85,5 +89,5 @@ try {
   const resumedCookie = resumedResponse.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
   assert.equal(await (await api(`pets/${pet.id}/files/0`, resumedCookie)).text(), model);
   assert.equal((await api('home', cookie)).status, 401, 'old session remains invalid after reentry');
-  console.log('PASS: subpath serving, guest isolation, model upload/read, concurrent saves, atomic cleanup, restart recovery, logout and same-device reentry.');
+  console.log('PASS: subpath serving and BGM, guest isolation, model upload/read, concurrent saves, atomic cleanup, restart recovery, logout and same-device reentry.');
 } finally { if (child && child.exitCode === null) await stop(); }

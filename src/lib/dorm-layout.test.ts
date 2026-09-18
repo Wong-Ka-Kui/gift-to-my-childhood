@@ -73,6 +73,9 @@ describe("four loft-bed dormitory", () => {
 
   it("walks four pets to actual classroom chairs and back without fading or overlapping", () => {
     const classroom = createClassroom().root; classroom.scale.setScalar(1.25); classroom.updateMatrixWorld(true);
+    const studentDesks = classroom.children.filter(node => node.userData.kind === "desk");
+    expect(studentDesks.filter(node => node.position.z < 0).every(node => node.position.z === -2.5)).toBe(true);
+    expect(studentDesks.filter(node => node.position.z < 0).every(node => node.position.z > -2.75)).toBe(true);
     const solids = classroom.children.filter(node => ['chair', 'desk', 'lectern', 'classroom-prop'].includes(node.userData.kind) || node.name === 'teaching-platform').map(node => {
       const b = new Box3().setFromObject(node); return {id:node.name,minX:b.min.x,maxX:b.max.x,minZ:b.min.z,maxZ:b.max.z};
     });

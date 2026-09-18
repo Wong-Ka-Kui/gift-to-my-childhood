@@ -19,6 +19,7 @@ const mime = {
   ".css": "text/css; charset=utf-8", ".json": "application/json",
   ".wasm": "application/wasm", ".png": "image/png", ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".mp3": "audio/mpeg",
 };
 
 async function ensureData() {

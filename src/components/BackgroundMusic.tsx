@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-const BGM_SOURCE = "/audio/bgm/main.mp3";
+const BGM_SOURCE = `${import.meta.env.BASE_URL}audio/bgm/main.mp3`;
 const VOLUME_KEY = "you-and-me-bgm-volume";
 
 function readVolume() {
   if (typeof window === "undefined") return .35;
-  const saved = Number(window.localStorage.getItem(VOLUME_KEY));
-  return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : .35;
+  try {
+    const value = window.localStorage.getItem(VOLUME_KEY);
+    const saved = value === null ? NaN : Number(value);
+    return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : .35;
+  } catch { return .35; }
 }
 
 /**
- * BGM shell: the source is intentionally a stable public path so a music file
- * can be dropped in later without touching the room or save-data code.
+ * Keep a stable, app-relative source for both local and Garden subpath hosting.
  * Browsers still require a first user gesture before audio may start.
  */
 export default function BackgroundMusic() {
@@ -22,56 +24,84 @@ export default function BackgroundMusic() {
   const [volume, setVolume] = useState(readVolume);
   const [missing, setMissing] = useState(false);
 
+  const playMusic = useCallback(() => {
+    const element = audio.current;
+    if (!element) return;
+    setMissing(false);
+    void element.play().catch((error: unknown) => {
+      if (audio.current !== element) return;
+      // A cancelled play or blocked autoplay is not a missing music file.
+      if (error instanceof DOMException && ["AbortError", "NotAllowedError"].includes(error.name)) return;
+      setMissing(true);
+    });
+  }, []);
+
   useEffect(() => {
     const element = new Audio();
     element.loop = true;
     element.preload = "none";
     element.src = BGM_SOURCE;
     element.volume = volume;
-    element.addEventListener("play", () => setPlaying(true));
-    element.addEventListener("pause", () => setPlaying(false));
-    element.addEventListener("error", () => { setMissing(true); setPlaying(false); });
+    const onPlay = () => { setPlaying(true); setMissing(false); };
+    const onPause = () => setPlaying(false);
+    const onError = () => { setMissing(true); setPlaying(false); };
+    element.addEventListener("playing", onPlay);
+    element.addEventListener("pause", onPause);
+    element.addEventListener("error", onError);
     audio.current = element;
-    return () => { element.pause(); element.src = ""; audio.current = null; };
+    return () => {
+      audio.current = null;
+      element.removeEventListener("playing", onPlay);
+      element.removeEventListener("pause", onPause);
+      element.removeEventListener("error", onError);
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    };
   }, []);
 
   useEffect(() => {
     const element = audio.current;
     if (element) element.volume = muted ? 0 : volume;
-    window.localStorage.setItem(VOLUME_KEY, String(volume));
+    try { window.localStorage.setItem(VOLUME_KEY, String(volume)); } catch { /* Playback also works without browser storage. */ }
   }, [muted, volume]);
 
   useEffect(() => {
-    const startAfterGesture = () => {
+    const startAfterGesture = (event: Event) => {
       if (startedGesture.current || missing) return;
+      // The explicit controls handle their own click; don't start on pointerdown
+      // and immediately pause again when the same click reaches the play button.
+      if (event.target instanceof Element && event.target.closest(".bgm-control")) return;
       startedGesture.current = true;
-      void audio.current?.play().catch(() => { /* autoplay remains blocked until the control is pressed */ });
+      playMusic();
+      window.removeEventListener("pointerdown", startAfterGesture);
+      window.removeEventListener("keydown", startAfterGesture);
     };
-    window.addEventListener("pointerdown", startAfterGesture, { once: true, passive: true });
-    window.addEventListener("keydown", startAfterGesture, { once: true });
+    window.addEventListener("pointerdown", startAfterGesture, { passive: true });
+    window.addEventListener("keydown", startAfterGesture);
     return () => {
       window.removeEventListener("pointerdown", startAfterGesture);
       window.removeEventListener("keydown", startAfterGesture);
     };
-  }, [missing]);
+  }, [missing, playMusic]);
 
   const togglePlayback = () => {
     const element = audio.current;
     if (!element) return;
     if (element.paused) {
       startedGesture.current = true;
-      void element.play().catch(() => setMissing(true));
+      playMusic();
     } else element.pause();
   };
 
   return (
-    <div className="bgm-control" aria-label="背景音乐控制">
+    <div className="bgm-control" aria-label="背景音乐控制" title="Sunny Afternoon Together · 循环播放">
       <button type="button" className="bgm-play" onClick={togglePlayback} aria-label={playing ? "暂停背景音乐" : "播放背景音乐"}>
         <span aria-hidden="true">{playing ? "Ⅱ" : "▶"}</span>
       </button>
       <div className="bgm-copy">
         <strong>背景音乐</strong>
-        <span>{missing ? "请放入 main.mp3" : playing ? "正在播放" : "等待播放"}</span>
+        <span>{missing ? "音乐加载失败，点击重试" : playing ? "循环播放中" : "点击播放"}</span>
       </div>
       <button type="button" className="bgm-mute" onClick={() => setMuted(value => !value)} aria-label={muted ? "取消静音" : "静音背景音乐"}>
         <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>

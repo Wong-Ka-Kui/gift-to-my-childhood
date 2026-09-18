@@ -17,13 +17,13 @@ for (const entry of await readdir('dist')) {
   await cp(path.join('dist', entry), path.join(staging, 'dist', entry), { recursive: true });
 }
 await mkdir(path.join(staging, 'public'));
-for (const entry of ['draco', 'hand-drawn-character']) {
+for (const entry of ['audio', 'draco', 'hand-drawn-character']) {
   await cp(path.join('public', entry), path.join(staging, 'public', entry), { recursive: true });
 }
 execFileSync('zip', ['-q', '-r', target, '.'], { cwd: staging });
 const entries = execFileSync('unzip', ['-Z1', target], { encoding: 'utf8' }).trim().split('\n');
 if (entries.some((entry) => /(^|\/)(othello|games|node_modules|\.git|\.garden-data|\.env[^/]*)($|\/)/.test(entry))) throw new Error('Unexpected private or unrelated content in archive');
-for (const required of ['index.html', 'dist/index.html', 'server.mjs', 'server-runtime/home-items.js', 'starter/home.json', 'GARDEN-DEPLOY.md']) {
+for (const required of ['index.html', 'dist/index.html', 'dist/audio/bgm/main.mp3', 'public/audio/bgm/main.mp3', 'server.mjs', 'server-runtime/home-items.js', 'starter/home.json', 'GARDEN-DEPLOY.md']) {
   if (!entries.includes(required)) throw new Error(`Missing ${required}`);
 }
 console.log(JSON.stringify({ zip: target, bytes: (await stat(target)).size, entries: entries.length, staging }, null, 2));
