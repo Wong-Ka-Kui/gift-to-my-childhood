@@ -397,3 +397,167 @@ button:disabled { cursor: default; }
 }
 
 .diary-day:disabled, .diary-month-nav button:disabled { opacity: .3; cursor: default; background: transparent; }
+
+/* Room HUD: a quiet left information panel, a compact bottom navigation bar,
+   and a separate action cluster on the right. */
+.hud-left { position: absolute; z-index: 3; top: 18px; left: 22px; display: flex; flex-direction: column; gap: 9px; width: 232px; pointer-events: none; }
+.hud-left > * { pointer-events: auto; }
+.hud-left .room-status, .hud-left .bgm-control, .hud-left .pet-rail { position: static; width: 100%; }
+.hud-left .room-status { gap: 8px; }
+.hud-left .coin-counter, .hud-left .game-clock { flex: 1 1 0; min-width: 0; }
+.hud-left .coin-counter { padding-right: 11px; }
+.hud-left .game-clock { padding-right: 10px; }
+.bgm-control { min-width: 0; width: 100%; border-radius: 15px; box-shadow: 0 7px 22px #365f4314; }
+.pet-rail { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; width: 100%; max-height: none; min-height: 76px; padding: 10px 12px; border-radius: 16px; gap: 9px 12px; }
+.pet-rail-title { width: 100%; padding-bottom: 1px; letter-spacing: .12em; text-align: left; }
+.pet-portrait-button { width: 42px; gap: 3px; }
+.pet-portrait-button img, .portrait-loading { width: 38px; height: 38px; }
+.pet-rail-empty { width: 100%; text-align: left; line-height: 1.45; }
+.clean-reward { top: 18px; left: 50%; transform: translateX(-50%); }
+.bottom-hud { position: absolute; z-index: 2; bottom: 18px; left: 50%; display: flex; flex-direction: column; align-items: center; gap: 7px; transform: translateX(-50%); pointer-events: none; }
+.bottom-hud > * { pointer-events: auto; }
+.bottom-hud .room-view-hint, .bottom-hud .room-area-switch { position: static; transform: none; }
+.bottom-hud .room-view-hint { max-width: min(620px, calc(100vw - 40px)); overflow: hidden; text-overflow: ellipsis; }
+.bottom-hud .room-area-switch { box-shadow: 0 8px 28px #365f4319; }
+.bottom-hud .room-area-switch { border-color: #ffffffcc; background: #fffdf3ee; }
+.bottom-hud .room-area-switch button { padding: 9px 14px; }
+.bottom-hud .room-view-hint { background: #fffdf3d9; box-shadow: 0 3px 12px #365f4310; }
+.room-toolbar { top: 18px; right: 22px; gap: 10px; }
+.room-toolbar .secondary-button { min-height: 43px; }
+.care-hint { right: 22px; bottom: 20px; }
+.diary-tab { bottom: 28px; }
+
+@media (max-width: 1000px) {
+  .room-toolbar { top: 16px; right: 16px; }
+  .room-toolbar .secondary-button { display: none; }
+  .hud-left { top: 16px; left: 16px; width: 210px; }
+}
+
+@media (max-width: 600px) {
+  .hud-left { top: 10px; left: 10px; width: min(194px, calc(100% - 20px)); gap: 6px; }
+  .hud-left .room-status { gap: 5px; }
+  .hud-left .coin-counter, .hud-left .game-clock { min-height: 39px; }
+  .hud-left .coin-counter > span:last-child { display: none; }
+  .hud-left .game-clock-copy > span { display: none; }
+  .bgm-control { padding: 6px 8px 6px 6px; gap: 6px; }
+  .bgm-copy { min-width: 70px; }
+  .bgm-volume, .bgm-volume input { width: 42px; }
+  .pet-rail { min-height: 64px; padding: 8px 9px; gap: 7px 10px; }
+  .pet-rail-title { font-size: 9px; }
+  .clean-reward { top: 92px; }
+  .room-toolbar { top: 10px; right: 10px; max-width: calc(100% - 20px); }
+  .bottom-hud { bottom: 10px; width: calc(100% - 20px); }
+  .bottom-hud .room-view-hint { max-width: calc(100% - 10px); font-size: 10px; }
+  .bottom-hud .room-area-switch { max-width: 100%; }
+  .bottom-hud .room-area-switch button { padding: 9px 10px; }
+  .care-hint { right: 10px; bottom: 92px; max-width: calc(100% - 20px); text-align: right; }
+  .diary-tab { bottom: 108px; }
+}
+
+/* Final HUD sizing: make the in-game clock the primary status card and keep
+   the diary tab anchored to the vertical centre of the room. */
+.hud-left { width: 300px; }
+.hud-left .room-status { align-items: stretch; gap: 8px; }
+.hud-left .room-status .coin-counter { flex: 0 0 92px; }
+.hud-left .room-status .game-clock { flex: 1 1 auto; min-height: 64px; padding: 8px 15px 8px 11px; gap: 11px; border-radius: 32px; }
+.hud-left .game-clock-icon { width: 44px; height: 44px; }
+.hud-left .game-clock-icon svg { width: 31px; height: 31px; }
+.hud-left .game-clock-copy strong { font-size: 25px; }
+.hud-left .game-clock-copy > span { font-size: 12px; }
+.diary-tab { top: 50%; bottom: auto; transform: translateY(-50%); }
+.diary-tab:hover, .diary-tab.is-open { transform: translate(3px, -50%); }
+
+@media (max-width: 1000px) {
+  .hud-left { width: 270px; }
+  .hud-left .room-status .coin-counter { flex-basis: 84px; }
+  .hud-left .room-status .game-clock { min-height: 58px; }
+  .hud-left .game-clock-icon { width: 39px; height: 39px; }
+  .hud-left .game-clock-icon svg { width: 27px; height: 27px; }
+  .hud-left .game-clock-copy strong { font-size: 22px; }
+}
+
+@media (max-width: 600px) {
+  /* Leave a clear lane for the account/import actions on the right. */
+  .hud-left { width: min(220px, calc(100% - 170px)); }
+  .hud-left .room-status .coin-counter { flex-basis: 74px; }
+  .hud-left .room-status .game-clock { min-height: 54px; padding: 7px 10px 7px 8px; gap: 8px; }
+  .hud-left .game-clock-icon { width: 35px; height: 35px; }
+  .hud-left .game-clock-icon svg { width: 24px; height: 24px; }
+  .hud-left .game-clock-copy strong { font-size: 19px; }
+  .hud-left .game-clock-copy > span { font-size: 10px; }
+  .diary-tab { width: 48px; }
+}
+
+/* Refined status cards: clear hierarchy, soft depth, and a balanced icon rail. */
+.hud-left .room-status { gap: 10px; }
+.hud-left .room-status .coin-counter,
+.hud-left .room-status .game-clock {
+  min-height: 68px;
+  border: 1px solid #ffffffd9;
+  box-shadow: 0 12px 28px #365f4320, inset 0 1px 0 #ffffffb3;
+}
+.hud-left .room-status .coin-counter {
+  flex-basis: 94px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 7px;
+  border-color: #f5df9f;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #fffdf1f5, #fff6dced);
+  color: #7d5c32;
+}
+.hud-left .room-status .coin-icon {
+  width: 31px;
+  height: 31px;
+  border-width: 2px;
+  color: #a97025;
+  background: #ffdb79;
+  font-size: 19px;
+  box-shadow: inset 0 0 0 2px #fff1b4, 0 2px 6px #c08b271f;
+}
+.hud-left .room-status .coin-counter strong { font-size: 20px; line-height: 1; letter-spacing: .015em; }
+.hud-left .room-status .coin-counter > span:last-child { color: #9b7a4d; font-size: 10px; line-height: 1; writing-mode: vertical-rl; letter-spacing: .08em; }
+.hud-left .room-status .game-clock {
+  min-width: 0;
+  padding: 8px 16px 8px 12px;
+  gap: 11px;
+  border-radius: 34px;
+  background: linear-gradient(145deg, #fffef8f5, #f4f5e9ea);
+  color: #537b6c;
+}
+.hud-left .room-status .game-clock-icon {
+  width: 45px;
+  height: 45px;
+  background: #f8eab8;
+  color: #bd9340;
+  box-shadow: inset 0 0 0 1px #fff6d0;
+}
+.hud-left .room-status .game-clock-icon svg { width: 29px; height: 29px; }
+.hud-left .room-status .game-clock-copy { min-width: 0; flex: 1 1 auto; gap: 2px; white-space: normal; }
+.hud-left .room-status .game-clock-copy strong { color: #4d7969; font-size: 27px; font-weight: 650; letter-spacing: .025em; line-height: 1; }
+.hud-left .room-status .game-clock-copy > span { display: block; max-width: 100%; color: #729285; font-size: 12px; opacity: 1; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
+.hud-left .room-status .game-clock.is-dawn { background: linear-gradient(145deg, #fffaf5f5, #faece3ea); color: #a0736b; }
+.hud-left .room-status .game-clock.is-dusk { background: linear-gradient(145deg, #fff5ef, #f5ded6); color: #946967; }
+.hud-left .room-status .game-clock.is-night { background: linear-gradient(145deg, #3c5261f5, #293846ef); border-color: #a2b9c455; color: #edf3f1; }
+.hud-left .room-status .game-clock.is-night .game-clock-copy strong { color: #f2f5ed; }
+.hud-left .room-status .game-clock.is-night .game-clock-copy > span { color: #c5d8d2; }
+@media (max-width: 1000px) {
+  .hud-left .room-status .coin-counter { flex-basis: 88px; }
+  .hud-left .room-status .game-clock { min-height: 62px; }
+  .hud-left .room-status .game-clock-icon { width: 41px; height: 41px; }
+  .hud-left .room-status .game-clock-icon svg { width: 27px; height: 27px; }
+  .hud-left .room-status .game-clock-copy strong { font-size: 24px; }
+}
+@media (max-width: 600px) {
+  .hud-left .room-status { gap: 6px; }
+  .hud-left .room-status .coin-counter { flex-basis: 70px; min-height: 54px; padding: 5px 6px; border-radius: 18px; gap: 4px; }
+  .hud-left .room-status .coin-icon { width: 25px; height: 25px; font-size: 16px; }
+  .hud-left .room-status .coin-counter strong { font-size: 16px; }
+  .hud-left .room-status .coin-counter > span:last-child { display: none; }
+  .hud-left .room-status .game-clock { min-height: 54px; padding: 6px 9px 6px 7px; gap: 7px; border-radius: 28px; }
+  .hud-left .room-status .game-clock-icon { width: 34px; height: 34px; }
+  .hud-left .room-status .game-clock-icon svg { width: 23px; height: 23px; }
+  .hud-left .room-status .game-clock-copy strong { font-size: 19px; }
+  .hud-left .room-status .game-clock-copy > span { font-size: 9px; }
+}

@@ -199,26 +199,30 @@ export default function App() {
         onError={onError}
         onPetError={onPetError}
       />
-      <BackgroundMusic />
+      <aside className="hud-left" aria-label="家园信息">
+        <div className="room-status">
+          <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
+          <GameClock timeOrigin={timeOrigin} />
+        </div>
+        <BackgroundMusic />
+        <nav className="pet-rail" aria-label="房间里的宠物">
+          <span className="pet-rail-title">伙伴</span>
+          {pets.map((pet) => <button key={pet.id} className="pet-portrait-button" aria-label={`查看${pet.profile.name}的档案`} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setSelectedPetId(pet.id)}>
+            {pet.portrait ? <img src={pet.portrait} alt={`${pet.profile.name}的头像`} width="58" height="58" /> : <span className="portrait-loading" aria-label="头像准备中">•••</span>}
+            <span className="pet-rail-name" title={pet.profile.name}>{pet.profile.name}</span>
+          </button>)}
+          {!pets.length ? <span className="pet-rail-empty">导入宠物<br />迎接伙伴</span> : null}
+        </nav>
+      </aside>
       <button type="button" className={`diary-tab${diaryOpen ? " is-open" : ""}`} onClick={() => setDiaryOpen((open) => !open)} aria-expanded={diaryOpen} aria-controls="pet-behavior-diary"><span aria-hidden="true">✦</span><b>行为<br />日记</b></button>
       {diaryOpen ? <div id="pet-behavior-diary"><BehaviorDiary pets={pets} onClose={() => setDiaryOpen(false)} /></div> : null}
-      <nav className="room-area-switch" aria-label="房间取景">
-        {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} type="button" aria-pressed={focusArea === area} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
-        <button type="button" className="reset-view-button" disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); }}>回到默认视角</button>
-      </nav>
-      <div className="room-view-hint">空白处拖动旋转 · 拖宠物到椅旁 / 床上 · Shift 拖宠物转向</div>
-      <div className="room-status">
-        <div className="coin-counter" aria-label={`金币 ${care.coins}`}><span className="coin-icon" aria-hidden="true">✦</span><strong>{care.coins.toLocaleString()}</strong><span>金币</span></div>
-        <GameClock timeOrigin={timeOrigin} />
+      <div className="bottom-hud">
+        <div className="room-view-hint">空白处拖动旋转 · 拖宠物到椅旁 / 床上 · Shift 拖宠物转向</div>
+        <nav className="room-area-switch" aria-label="房间取景">
+          {([["all", "一起看"], ["bedroom", "看卧室"], ["classroom", "看教室"]] as const).map(([area, name]) => <button key={area} type="button" aria-pressed={focusArea === area} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setFocusArea(area)}>{name}</button>)}
+          <button type="button" className="reset-view-button" disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => { setViewReset((value) => value + 1); setFocusArea("all"); }}>回到默认视角</button>
+        </nav>
       </div>
-      <nav className="pet-rail" aria-label="房间里的宠物">
-        <span className="pet-rail-title">伙伴</span>
-        {pets.map((pet) => <button key={pet.id} className="pet-portrait-button" aria-label={`查看${pet.profile.name}的档案`} disabled={editingFurniture || loading || Boolean(pendingAsset || selectedPet)} onClick={() => setSelectedPetId(pet.id)}>
-          {pet.portrait ? <img src={pet.portrait} alt={`${pet.profile.name}的头像`} width="58" height="58" /> : <span className="portrait-loading" aria-label="头像准备中">•••</span>}
-          <span className="pet-rail-name" title={pet.profile.name}>{pet.profile.name}</span>
-        </button>)}
-        {!pets.length ? <span className="pet-rail-empty">导入宠物<br />迎接伙伴</span> : null}
-      </nav>
       <div className="care-hint">点击便便或纸团清扫 · 每件 +5 金币</div>
       {rewardMessage ? <div className="clean-reward" role="status">{rewardMessage}</div> : null}
       {selectedPet ? <PetProfileCard key={selectedPet.id} asset={selectedPet.asset} initialProfile={selectedPet.profile} readOnly onCancel={() => setSelectedPetId(null)} onError={setError} /> : null}
